@@ -9,5 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# Ruff cache
+.ruff-cache/
+
 # Results and output
 results/

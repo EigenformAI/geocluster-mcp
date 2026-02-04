@@ -76,4 +76,7 @@ mcp.tool()(summarize_provenance)
 mcp.tool()(export_artifact)
 
 if __name__ == "__main__":
-    mcp.run()
+    # mcp.run()
+
+    print("Starting Geocluster MCP on http://0.0.0.0:7654/sse")
+    mcp.run(transport="sse", host="0.0.0.0", port=7654)
