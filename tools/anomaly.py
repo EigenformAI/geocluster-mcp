@@ -1,6 +1,6 @@
 import pandas as pd
 
-from config import save_csv
+from .config import save_csv
 
 
 def compute_anomaly(path: str, columns: list[str], method: str = "zscore"):
