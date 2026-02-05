@@ -1,23 +1,12 @@
+import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import rasterio
 from rasterio.plot import show
-import os
-import numpy as np
+from .config import save_plot
 
 plt.switch_backend("Agg")
-
-
-def _save_plot(path_original, suffix):
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.basename(path_original)
-    name, _ = os.path.splitext(filename)
-    output_path = os.path.join(output_dir, f"{name}_{suffix}.png")
-    plt.savefig(output_path, bbox_inches="tight", dpi=150)
-    plt.close()
-    return output_path
 
 
 def plot_histogram(path: str, column: str, bins: int = 30):
@@ -37,7 +26,7 @@ def plot_histogram(path: str, column: str, bins: int = 30):
         plt.ylabel("Frequency")
         plt.grid(True, alpha=0.3)
 
-        output_path = _save_plot(path, f"hist_{column}")
+        output_path = save_plot(path, f"hist_{column}")
         return {"status": "success", "output_path": output_path}
     except Exception as e:
         return f"Error plotting histogram: {str(e)}"
@@ -74,11 +63,10 @@ def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
         plt.grid(True, linestyle="--", alpha=0.5)
 
         suffix = f"scatter_{x_col}_{y_col}"
-        output_path = _save_plot(path, suffix)
+        output_path = save_plot(path, suffix)
         return {"status": "success", "output_path": output_path}
     except Exception as e:
         return f"Error plotting scatter: {str(e)}"
-
 
 def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = None):
     """
@@ -118,7 +106,7 @@ def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = N
             plt.grid(True, alpha=0.3)
             suffix = "map_vector"
 
-        output_path = _save_plot(path, suffix)
+        output_path = save_plot(path, suffix)
         return {"status": "success", "output_path": output_path}
 
     except Exception as e:
@@ -159,7 +147,7 @@ def plot_clusters(path: str, x_col: str, y_col: str, cluster_col: str):
         plt.grid(True, linestyle="--", alpha=0.4)
         plt.legend(title="Cluster ID", bbox_to_anchor=(1.05, 1), loc="upper left")
 
-        output_path = _save_plot(path, f"cluster_viz_{cluster_col}")
+        output_path = save_plot(path, f"cluster_viz_{cluster_col}")
         return {"status": "success", "output_path": output_path}
 
     except Exception as e:

@@ -1,16 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import os
 
-
-def _save_result(df, path, suffix):
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.basename(path).replace(".csv", f"_{suffix}.csv")
-    output_path = os.path.join(output_dir, filename)
-    df.to_csv(output_path, index=False)
-    return output_path
+from .config import save_csv
 
 
 def log_transform(path: str, columns: list[str], base: str = "e"):
@@ -34,7 +26,7 @@ def log_transform(path: str, columns: list[str], base: str = "e"):
             else:
                 df_new[f"{col}_log"] = np.log1p(df[col])
 
-        output_path = _save_result(df_new, path, "log")
+        output_path = save_csv(df_new, path, "log")
 
         return {
             "status": "success",
@@ -67,7 +59,7 @@ def standardize(path: str, columns: list[str]):
             df_new[new_col_name] = transformed[:, i]
             new_cols.append(new_col_name)
 
-        output_path = _save_result(df_new, path, "std")
+        output_path = save_csv(df_new, path, "std")
 
         return {
             "status": "success",
@@ -98,7 +90,7 @@ def normalize(path: str, columns: list[str], method: str = "minmax"):
         for i, col in enumerate(columns):
             df_new[f"{col}_norm"] = transformed[:, i]
 
-        output_path = _save_result(df_new, path, "norm")
+        output_path = save_csv(df_new, path, "norm")
         return {"status": "success", "output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"
@@ -122,7 +114,7 @@ def smooth(path: str, columns: list[str], window: int = 3, method: str = "mean")
                     df[col].rolling(window=window, center=True).median()
                 )
 
-        output_path = _save_result(df_new, path, f"smooth_{window}")
+        output_path = save_csv(df_new, path, f"smooth_{window}")
         return {"status": "success", "output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"

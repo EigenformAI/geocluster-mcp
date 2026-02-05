@@ -1,15 +1,6 @@
 import pandas as pd
-import numpy as np
-import os
 
-
-def _save_result(df, path, suffix):
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.basename(path).replace(".csv", f"_{suffix}.csv")
-    output_path = os.path.join(output_dir, filename)
-    df.to_csv(output_path, index=False)
-    return output_path
+from config import save_csv
 
 
 def compute_anomaly(path: str, columns: list[str], method: str = "zscore"):
@@ -51,7 +42,7 @@ def compute_anomaly(path: str, columns: list[str], method: str = "zscore"):
             else:
                 return "Error: Method not supported. Use 'zscore', 'mad', or 'ratio'."
 
-        output_path = _save_result(df_new, path, f"anom_{method}")
+        output_path = save_csv(df_new, path, f"anom_{method}")
         return {"status": "success", "method": method, "output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"
@@ -75,7 +66,7 @@ def threshold(path: str, column: str, value: float, mode: str = "above"):
         else:
             return "Error: Mode must be 'above' or 'below'."
 
-        output_path = _save_result(df_filtered, path, f"thresh_{column}")
+        output_path = save_csv(df_filtered, path, f"thresh_{column}")
 
         return {
             "status": "success",
@@ -100,7 +91,7 @@ def rank_by_metric(path: str, metric: str, top_n: int = 10):
         # Sort descending (Highest first)
         df_sorted = df.sort_values(by=metric, ascending=False).head(top_n)
 
-        output_path = _save_result(df_sorted, path, f"top_{top_n}_{metric}")
+        output_path = save_csv(df_sorted, path, f"top_{top_n}_{metric}")
 
         return {
             "status": "success",

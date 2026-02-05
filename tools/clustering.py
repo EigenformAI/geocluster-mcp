@@ -1,23 +1,13 @@
 import pandas as pd
-import os
-import numpy as np
 from sklearn.cluster import KMeans, DBSCAN
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
+from .config import save_csv
 try:
     import umap
 except ImportError:
     umap = None
-
-
-def _save_result(df, path, suffix):
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.basename(path).replace(".csv", f"_{suffix}.csv")
-    output_path = os.path.join(output_dir, filename)
-    df.to_csv(output_path, index=False)
-    return output_path
 
 
 def cluster(
@@ -63,7 +53,7 @@ def cluster(
         df_new = df.copy()
         df_new.loc[data.index, f"cluster_{algorithm}"] = labels
 
-        output_path = _save_result(df_new, path, suffix)
+        output_path = save_csv(df_new, path, suffix)
 
         counts = df_new[f"cluster_{algorithm}"].value_counts().to_dict()
 
@@ -122,7 +112,7 @@ def reduce_dimensions(
             col_name = f"{method.upper()}{i + 1}"
             df_new.loc[data.index, col_name] = components[:, i]
 
-        output_path = _save_result(df_new, path, suffix)
+        output_path = save_csv(df_new, path, suffix)
 
         return {
             "status": "success",

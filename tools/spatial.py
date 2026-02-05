@@ -1,6 +1,6 @@
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 import os
 import rasterio
 from rasterio.enums import Resampling
@@ -9,11 +9,10 @@ from rasterio.warp import (
     reproject as rio_reproject,
     Resampling,
 )
+from rasterio.mask import mask
 import numpy as np
 
-from rasterio.mask import mask
-from shapely.geometry import box
-import geopandas as gpd
+from .config import get_output_dir, save_raster
 
 
 def reproject(
@@ -56,9 +55,7 @@ def reproject(
 
         gdf_transformed = gdf.to_crs(target_crs)
 
-        output_dir = "results"
-        os.makedirs(output_dir, exist_ok=True)
-
+        output_dir = get_output_dir(path)
         filename = os.path.basename(path)
         name, ext = os.path.splitext(filename)
 
@@ -105,8 +102,7 @@ def resample(path: str, scale_factor: float = 0.5):
                 {"transform": dst_transform, "width": new_width, "height": new_height}
             )
 
-            output_dir = "results"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = get_output_dir(path)
             name, ext = os.path.splitext(os.path.basename(path))
             output_path = os.path.join(
                 output_dir, f"{name}_resampled_{scale_factor}x{ext}"
@@ -167,8 +163,7 @@ def clip_to_extent(
                 }
             )
 
-            output_dir = "results"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = get_output_dir(path)
             name, ext = os.path.splitext(os.path.basename(path))
             output_path = os.path.join(output_dir, f"{name}_clipped{ext}")
 
@@ -209,8 +204,7 @@ def align_grids(source_path: str, reference_path: str):
                 }
             )
 
-            output_dir = "results"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = get_output_dir(source_path)
             name = os.path.splitext(os.path.basename(source_path))[0]
             ref_name = os.path.splitext(os.path.basename(reference_path))[0]
             output_path = os.path.join(output_dir, f"{name}_aligned_to_{ref_name}.tif")
