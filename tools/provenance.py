@@ -5,15 +5,25 @@ import zipfile
 import pandas as pd
 import geopandas as gpd
 
+from .config import get_output_dir
 
-def summarize_provenance():
+
+def summarize_provenance(workspace_path: str = None):
     """
-    Generate a summary log of all artifacts created in the 'results' folder.
-    Helps track what analysis steps have been performed in this session.
+    Generate a summary log of all artifacts created in the workspace's 'results' folder.
+    
+    Args:
+        workspace_path: Path to any file in the workspace. The results folder
+                       will be found relative to this path. If not provided,
+                       looks in current directory.
     """
-    results_dir = "results"
+    if workspace_path:
+        results_dir = get_output_dir(workspace_path)
+    else:
+        results_dir = "results"
+        
     if not os.path.exists(results_dir):
-        return "No results folder found. No analysis performed yet."
+        return f"No results folder found at {results_dir}. No analysis performed yet."
 
     artifacts = []
     for f in os.listdir(results_dir):
@@ -53,24 +63,28 @@ def summarize_provenance():
 
     return {
         "status": "success",
+        "results_dir": results_dir,
         "total_artifacts": len(artifacts),
         "log_path": summary_path,
         "inventory": artifacts,
     }
 
 
-def export_artifact(path: str = "all", format: str = "zip"):
+def export_artifact(path: str = "all", format: str = "zip", workspace_path: str = None):
     """
     Package results for export/download.
 
     Args:
         path: Specific file path, or "all" to package the entire 'results' folder.
-        format:
-            - 'zip': Create a compressed archive (Good for downloading everything).
-            - 'xlsx': Convert a CSV to Excel format.
-            - 'geojson': Convert a CSV with coords to GeoJSON.
+        format: 'zip', 'xlsx', or 'geojson'.
+        workspace_path: Path to any file in workspace (used to find results folder).
     """
-    output_dir = "results"
+    if workspace_path:
+        output_dir = get_output_dir(workspace_path)
+    elif path != "all" and os.path.exists(path):
+        output_dir = get_output_dir(path)
+    else:
+        output_dir = "results"
 
     if format == "zip":
         timestamp = int(time.time())
@@ -79,6 +93,8 @@ def export_artifact(path: str = "all", format: str = "zip"):
 
         with zipfile.ZipFile(zip_path, "w") as zipf:
             if path == "all":
+                if not os.path.exists(output_dir):
+                    return f"Error: Results folder not found at {output_dir}"
                 for root, _, files in os.walk(output_dir):
                     for file in files:
                         if file != zip_name:
@@ -106,7 +122,6 @@ def export_artifact(path: str = "all", format: str = "zip"):
     elif format == "geojson":
         try:
             df = pd.read_csv(path)
-            cols = [c.lower() for c in df.columns]
 
             x_col = next(
                 (
@@ -126,7 +141,7 @@ def export_artifact(path: str = "all", format: str = "zip"):
             )
 
             if not x_col or not y_col:
-                return "Error: Could not auto-detect coordinate columns (x/lon/easting, y/lat/northing)."
+                return "Error: Could not auto-detect coordinate columns."
 
             gdf = gpd.GeoDataFrame(
                 df, geometry=gpd.points_from_xy(df[x_col], df[y_col])

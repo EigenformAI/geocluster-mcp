@@ -8,23 +8,7 @@ from skimage.filters.rank import entropy
 from skimage.morphology import disk
 from skimage.util import img_as_ubyte
 
-
-def _save_raster(data, meta, path, suffix):
-    output_dir = "results"
-    os.makedirs(output_dir, exist_ok=True)
-
-    filename = os.path.basename(path)
-    name, ext = os.path.splitext(filename)
-    output_path = os.path.join(output_dir, f"{name}_{suffix}{ext}")
-
-    with rasterio.open(output_path, "w", **meta) as dest:
-        if data.ndim == 3:
-            for i in range(data.shape[0]):
-                dest.write(data[i], i + 1)
-        else:
-            dest.write(data, 1)
-
-    return output_path
+from .config import save_raster, save_csv, get_output_dir
 
 
 def select_bands(path: str, indices: list[int]):
@@ -48,7 +32,7 @@ def select_bands(path: str, indices: list[int]):
             meta.update({"count": len(indices)})
 
             suffix = "bands_" + "-".join(map(str, indices))
-            output_path = _save_raster(data, meta, path, suffix)
+            output_path = save_raster(data, meta, path, suffix)
 
             return {
                 "status": "success",
@@ -86,7 +70,7 @@ def band_math(path: str, expression: str):
             meta.update({"dtype": "float32", "count": 1})
 
             safe_expr = "".join(c for c in expression if c.isalnum())
-            output_path = _save_raster(
+            output_path = save_raster(
                 result.astype(np.float32), meta, path, f"math_{safe_expr}"
             )
 
@@ -121,7 +105,7 @@ def compute_gradient(path: str, method: str = "sobel"):
 
             meta.update({"dtype": "float32"})
 
-            output_path = _save_raster(edges.astype(np.float32), meta, path, "gradient")
+            output_path = save_raster(edges.astype(np.float32), meta, path, "gradient")
 
             return {"status": "success", "method": method, "output_path": output_path}
 
@@ -154,7 +138,7 @@ def texture_features(path: str, method: str = "entropy"):
                 return "Error: Only 'entropy' method supported currently."
 
             meta.update({"dtype": "float32"})
-            output_path = _save_raster(
+            output_path = save_raster(
                 result.astype(np.float32), meta, path, f"texture_{method}"
             )
 
@@ -177,13 +161,7 @@ def select_columns(path: str, columns: list[str]):
             return f"Error: Columns not found: {missing}"
 
         df_new = df[columns].copy()
-
-        output_dir = "results"
-        os.makedirs(output_dir, exist_ok=True)
-        filename = os.path.basename(path).replace(".csv", "_subset.csv")
-        output_path = os.path.join(output_dir, filename)
-
-        df_new.to_csv(output_path, index=False)
+        output_path = save_csv(df_new, path, "subset")
         return {"status": "success", "output_path": output_path}
 
     except Exception as e:
@@ -213,12 +191,7 @@ def compute_ratios(path: str, pairs: list[str]):
             df_new[col_name] = df[num] / denominator
             created_cols.append(col_name)
 
-        output_dir = "results"
-        os.makedirs(output_dir, exist_ok=True)
-        filename = os.path.basename(path).replace(".csv", "_ratios.csv")
-        output_path = os.path.join(output_dir, filename)
-
-        df_new.to_csv(output_path, index=False)
+        output_path = save_csv(df_new, path, "ratios")
 
         return {
             "status": "success",
@@ -296,15 +269,8 @@ def aggregate(
         else:
             return "Error: Statistic not supported. Use mean/median/max/sum."
 
-        output_dir = "results"
-        os.makedirs(output_dir, exist_ok=True)
         safe_op = spatial_op.replace(":", "_")
-        filename = os.path.basename(path).replace(
-            ".csv", f"_agg_{safe_op}_{statistic}.csv"
-        )
-        output_path = os.path.join(output_dir, filename)
-
-        df_agg.to_csv(output_path, index=False)
+        output_path = save_csv(df_agg, path, f"agg_{safe_op}_{statistic}")
 
         return {
             "status": "success",
