@@ -68,6 +68,7 @@ def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
     except Exception as e:
         return f"Error plotting scatter: {str(e)}"
 
+
 def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = None):
     """
     Visualize Geospatial Data.

@@ -11,7 +11,7 @@ from .config import get_output_dir
 def summarize_provenance(workspace_path: str = None):
     """
     Generate a summary log of all artifacts created in the workspace's 'results' folder.
-    
+
     Args:
         workspace_path: Path to any file in the workspace. The results folder
                        will be found relative to this path. If not provided,
@@ -21,7 +21,7 @@ def summarize_provenance(workspace_path: str = None):
         results_dir = get_output_dir(workspace_path)
     else:
         results_dir = "results"
-        
+
     if not os.path.exists(results_dir):
         return f"No results folder found at {results_dir}. No analysis performed yet."
 

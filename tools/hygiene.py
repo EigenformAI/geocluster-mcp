@@ -3,12 +3,26 @@ import pandas as pd
 import rasterio
 import numpy as np
 
+from .config import resolve_path
+
 
 def list_files(directory: str = "."):
     """List all available files in a directory to identify data sources."""
     try:
+        if not os.path.isdir(directory):
+            return f"Error: '{directory}' is not a directory."
+
         files = os.listdir(directory)
-        return {"files": files, "count": len(files)}
+        count = len(files)
+        # Limit the number of files returned to prevent context overflow
+        if count > 500:
+            return {
+                "files": files[:500],
+                "count": count,
+                "warning": f"Output truncated. Showing 500 of {count} files.",
+            }
+
+        return {"files": files, "count": count}
     except Exception as e:
         return f"Error listing files: {str(e)}"
 
@@ -19,7 +33,10 @@ def inspect_dataset(path: str, stats: bool = True, preview: bool = True):
     Does not modify data.
     """
     try:
-        df = pd.read_csv(path)
+        # Resolve the file path relative to the workspace root
+        resolved_path = resolve_path(path)
+
+        df = pd.read_csv(resolved_path)
         report = {
             "columns": list(df.columns),
             "dtypes": df.dtypes.astype(str).to_dict(),
@@ -37,7 +54,10 @@ def inspect_dataset(path: str, stats: bool = True, preview: bool = True):
 def check_missing(path: str):
     """Report the count and percentage of missing values per column."""
     try:
-        df = pd.read_csv(path)
+        # Resolve the file path relative to the workspace root
+        resolved_path = resolve_path(path)
+
+        df = pd.read_csv(resolved_path)
         missing_count = df.isnull().sum()
         missing_pct = (df.isnull().sum() / len(df)) * 100
         return {
@@ -53,7 +73,10 @@ def inspect_raster(path: str, metadata: bool = True, histogram: bool = True):
     Inspect a raster file (GeoTIFF) to report resolution, CRS, and value distribution.
     """
     try:
-        with rasterio.open(path) as src:
+        # Resolve the file path relative to the workspace root
+        resolved_path = resolve_path(path)
+
+        with rasterio.open(resolved_path) as src:
             info = {
                 "driver": src.driver,
                 "width": src.width,

@@ -4,6 +4,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 from .config import save_csv
+
 try:
     import umap
 except ImportError:
