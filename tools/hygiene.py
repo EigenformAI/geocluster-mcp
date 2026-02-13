@@ -9,10 +9,11 @@ from .config import resolve_path
 def list_files(directory: str = "."):
     """List all available files in a directory to identify data sources."""
     try:
-        if not os.path.isdir(directory):
+        resolved = resolve_path(directory)
+        if not os.path.isdir(resolved):
             return f"Error: '{directory}' is not a directory."
 
-        files = os.listdir(directory)
+        files = os.listdir(resolved)
         count = len(files)
         # Limit the number of files returned to prevent context overflow
         if count > 500:

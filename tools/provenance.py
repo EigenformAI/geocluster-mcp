@@ -5,7 +5,7 @@ import zipfile
 import pandas as pd
 import geopandas as gpd
 
-from .config import get_output_dir
+from .config import get_output_dir, resolve_path
 
 
 def summarize_provenance(workspace_path: str = None):
@@ -86,6 +86,14 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
     else:
         output_dir = "results"
 
+    # Validate path containment for non-"all" paths (X-1 invariant)
+    resolved_file = None
+    if path != "all":
+        try:
+            resolved_file = resolve_path(path)
+        except ValueError as e:
+            return f"Error: {str(e)}"
+
     if format == "zip":
         timestamp = int(time.time())
         zip_name = f"geocluster_export_{timestamp}.zip"
@@ -100,8 +108,8 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
                         if file != zip_name:
                             zipf.write(os.path.join(root, file), file)
             else:
-                if os.path.exists(path):
-                    zipf.write(path, os.path.basename(path))
+                if os.path.exists(resolved_file):
+                    zipf.write(resolved_file, os.path.basename(resolved_file))
                 else:
                     return f"Error: File {path} not found."
 
@@ -112,8 +120,8 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
             return "Error: xlsx export only works for CSV files."
 
         try:
-            df = pd.read_csv(path)
-            excel_path = path.replace(".csv", ".xlsx")
+            df = pd.read_csv(resolved_file)
+            excel_path = resolved_file.replace(".csv", ".xlsx")
             df.to_excel(excel_path, index=False)
             return {"status": "success", "output_path": excel_path}
         except Exception as e:
@@ -121,7 +129,7 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
 
     elif format == "geojson":
         try:
-            df = pd.read_csv(path)
+            df = pd.read_csv(resolved_file)
 
             x_col = next(
                 (
@@ -146,7 +154,7 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
             gdf = gpd.GeoDataFrame(
                 df, geometry=gpd.points_from_xy(df[x_col], df[y_col])
             )
-            geojson_path = path.replace(".csv", ".geojson")
+            geojson_path = resolved_file.replace(".csv", ".geojson")
             gdf.to_file(geojson_path, driver="GeoJSON")
             return {"status": "success", "output_path": geojson_path}
         except Exception as e:

@@ -1,14 +1,63 @@
-import rasterio
+import ast
 import os
+
 import numpy as np
 import pandas as pd
-
+import rasterio
 from skimage.filters import sobel
 from skimage.filters.rank import entropy
 from skimage.morphology import disk
 from skimage.util import img_as_ubyte
 
 from .config import save_raster, save_csv, get_output_dir
+
+
+def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
+    """Validate a band math expression using AST analysis.
+
+    Raises ValueError if the expression contains unsafe operations.
+    """
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"Invalid expression syntax: {e}")
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Compare)):
+            continue
+        # Context nodes (Load appears on Name/Attribute/Subscript in eval mode)
+        if isinstance(node, (ast.Load, ast.Store, ast.Del)):
+            continue
+        if isinstance(node, ast.Constant):
+            continue
+        if isinstance(node, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv,
+                             ast.Mod, ast.Pow, ast.USub, ast.UAdd,
+                             ast.Gt, ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq)):
+            continue
+        if isinstance(node, ast.Name):
+            if node.id not in allowed_names:
+                raise ValueError(f"Name '{node.id}' is not allowed. Allowed: {allowed_names}")
+            continue
+        if isinstance(node, ast.Attribute):
+            # Only allow np.function_name (one level of attribute access)
+            if isinstance(node.value, ast.Name) and node.value.id == "np":
+                continue
+            raise ValueError("Attribute access not allowed except on 'np'")
+        if isinstance(node, ast.Call):
+            # Only allow calls to np.* functions
+            if isinstance(node.func, ast.Attribute) and \
+               isinstance(node.func.value, ast.Name) and node.func.value.id == "np":
+                continue
+            raise ValueError("Function calls only allowed on 'np' (e.g., np.log, np.sqrt)")
+        if isinstance(node, ast.Subscript):
+            continue
+        if isinstance(node, (ast.BoolOp, ast.And, ast.Or)):
+            continue
+        if isinstance(node, ast.IfExp):
+            continue
+        if isinstance(node, ast.Tuple):
+            continue
+        raise ValueError(f"Unsafe AST node type: {type(node).__name__}")
 
 
 def select_bands(path: str, indices: list[int]):
@@ -56,11 +105,18 @@ def band_math(path: str, expression: str):
             meta = src.meta.copy()
             bands = {f"b{i}": src.read(i) for i in range(1, src.count + 1)}
 
-            allowed_names = {"__builtins__": None, "np": np}
-            allowed_names.update(bands)
+            # AST-validate expression before evaluation (X-2 invariant)
+            allowed_names = set(bands.keys()) | {"np"}
+            try:
+                _validate_band_math_expr(expression, allowed_names)
+            except ValueError as e:
+                return f"Error: Unsafe expression — {e}"
 
             try:
-                result = eval(expression, allowed_names)
+                result = eval(
+                    compile(ast.parse(expression, mode="eval"), "<band_math>", "eval"),
+                    {"__builtins__": {}, "np": np, **bands},
+                )
             except Exception as math_err:
                 return f"Error in math expression: {str(math_err)}"
 

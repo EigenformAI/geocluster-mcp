@@ -7,12 +7,20 @@ WORKSPACE_ROOT = os.environ.get("MCP_WORKSPACE_ROOT", os.getcwd())
 
 def resolve_path(path: str) -> str:
     """
-    Resolve a path to an absolute path.
-    If path is relative, it's resolved from WORKSPACE_ROOT.
+    Resolve a path to an absolute path within WORKSPACE_ROOT.
+    Raises ValueError if the resolved path escapes the workspace.
     """
     if os.path.isabs(path):
-        return path
-    return os.path.join(WORKSPACE_ROOT, path)
+        resolved = os.path.realpath(path)
+    else:
+        resolved = os.path.realpath(os.path.join(WORKSPACE_ROOT, path))
+
+    workspace_real = os.path.realpath(WORKSPACE_ROOT)
+    if not resolved.startswith(workspace_real + os.sep) and resolved != workspace_real:
+        raise ValueError(
+            f"Path '{path}' resolves to '{resolved}' which is outside workspace '{workspace_real}'"
+        )
+    return resolved
 
 
 def get_output_dir(input_path: str) -> str:
