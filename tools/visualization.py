@@ -4,18 +4,15 @@ import seaborn as sns
 import pandas as pd
 import rasterio
 from rasterio.plot import show
-from .config import save_plot
+from .config import save_plot, read_tabular
 
 plt.switch_backend("Agg")
 
 
 def plot_histogram(path: str, column: str, bins: int = 30):
-    """
-    Generate a histogram to visualize data distribution.
-    Useful for checking if data is Normal (Bell curve) or Log-Normal.
-    """
+    """Plot histogram of a column."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         if column not in df.columns:
             return f"Error: Column {column} not found."
 
@@ -27,18 +24,15 @@ def plot_histogram(path: str, column: str, bins: int = 30):
         plt.grid(True, alpha=0.3)
 
         output_path = save_plot(path, f"hist_{column}")
-        return {"status": "success", "output_path": output_path}
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error plotting histogram: {str(e)}"
 
 
 def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
-    """
-    Generate a Scatter Plot (X vs Y).
-    Optional: 'color_col' to color points by value (e.g., Gold grade) or category (Cluster).
-    """
+    """Scatter plot X vs Y, optional color_col."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         if x_col not in df.columns or y_col not in df.columns:
             return f"Error: Columns not found."
 
@@ -64,17 +58,13 @@ def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
 
         suffix = f"scatter_{x_col}_{y_col}"
         output_path = save_plot(path, suffix)
-        return {"status": "success", "output_path": output_path}
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error plotting scatter: {str(e)}"
 
 
 def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = None):
-    """
-    Visualize Geospatial Data.
-    - If path is Raster (.tif): Displays the image/grid.
-    - If path is CSV: Plots X/Y coordinates as a map.
-    """
+    """Plot map from raster (.tif) or CSV (provide x_col, y_col)."""
     try:
         plt.figure(figsize=(10, 10))
 
@@ -83,7 +73,7 @@ def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = N
                 show(src, title=os.path.basename(path), cmap="magma")
                 suffix = "map_raster"
         else:
-            df = pd.read_csv(path)
+            df = read_tabular(path)
             if not x_col or not y_col:
                 return "Error: For CSV maps, you must specify x_col (Easting/Lon) and y_col (Northing/Lat)."
 
@@ -108,19 +98,16 @@ def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = N
             suffix = "map_vector"
 
         output_path = save_plot(path, suffix)
-        return {"status": "success", "output_path": output_path}
+        return {"output_path": output_path}
 
     except Exception as e:
         return f"Error plotting map: {str(e)}"
 
 
 def plot_clusters(path: str, x_col: str, y_col: str, cluster_col: str):
-    """
-    Visualize clustering results (K-Means/DBSCAN) on a 2D Scatter Plot.
-    Automatically treats the cluster column as categorical (distinct colors).
-    """
+    """Scatter plot colored by cluster column."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
 
         required = [x_col, y_col, cluster_col]
         missing = [c for c in required if c not in df.columns]
@@ -149,7 +136,7 @@ def plot_clusters(path: str, x_col: str, y_col: str, cluster_col: str):
         plt.legend(title="Cluster ID", bbox_to_anchor=(1.05, 1), loc="upper left")
 
         output_path = save_plot(path, f"cluster_viz_{cluster_col}")
-        return {"status": "success", "output_path": output_path}
+        return {"output_path": output_path}
 
     except Exception as e:
         return f"Error plotting clusters: {str(e)}"
