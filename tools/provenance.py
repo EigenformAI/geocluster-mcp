@@ -9,14 +9,7 @@ from .config import get_output_dir, resolve_path
 
 
 def summarize_provenance(workspace_path: str = None):
-    """
-    Generate a summary log of all artifacts created in the workspace's 'results' folder.
-
-    Args:
-        workspace_path: Path to any file in the workspace. The results folder
-                       will be found relative to this path. If not provided,
-                       looks in current directory.
-    """
+    """List all artifacts in results folder with metadata."""
     if workspace_path:
         results_dir = get_output_dir(workspace_path)
     else:
@@ -71,14 +64,7 @@ def summarize_provenance(workspace_path: str = None):
 
 
 def export_artifact(path: str = "all", format: str = "zip", workspace_path: str = None):
-    """
-    Package results for export/download.
-
-    Args:
-        path: Specific file path, or "all" to package the entire 'results' folder.
-        format: 'zip', 'xlsx', or 'geojson'.
-        workspace_path: Path to any file in workspace (used to find results folder).
-    """
+    """Export results. path: file or 'all'. format: 'zip', 'xlsx', 'geojson'."""
     if workspace_path:
         output_dir = get_output_dir(workspace_path)
     elif path != "all" and os.path.exists(path):

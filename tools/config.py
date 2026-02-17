@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 import rasterio
 import matplotlib.pyplot as plt
 
@@ -23,6 +24,27 @@ def resolve_path(path: str) -> str:
     return resolved
 
 
+def read_tabular(path: str, **kwargs) -> pd.DataFrame:
+    """Read CSV, Excel, or LAS file into DataFrame."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".csv":
+        return pd.read_csv(path, **kwargs)
+    elif ext in (".xls", ".xlsx"):
+        return pd.read_excel(path, **kwargs)
+    elif ext == ".las":
+        import lasio
+
+        las = lasio.read(path)
+        df = las.df().reset_index()
+        if "nrows" in kwargs:
+            df = df.head(kwargs["nrows"])
+        if "usecols" in kwargs:
+            df = df[kwargs["usecols"]]
+        return df
+    else:
+        raise ValueError(f"Unsupported format: {ext}. Use .csv, .xlsx, or .las")
+
+
 def get_output_dir(input_path: str) -> str:
     """
     Get the output directory based on the input file's location.
@@ -45,8 +67,8 @@ def save_csv(df, input_path: str, suffix: str) -> str:
     """Save a DataFrame to results folder next to input file."""
     resolved_path = resolve_path(input_path)
     output_dir = get_output_dir(resolved_path)
-    filename = os.path.basename(resolved_path).replace(".csv", f"_{suffix}.csv")
-    output_path = os.path.join(output_dir, filename)
+    name = os.path.splitext(os.path.basename(resolved_path))[0]
+    output_path = os.path.join(output_dir, f"{name}_{suffix}.csv")
     df.to_csv(output_path, index=False)
     return output_path
 

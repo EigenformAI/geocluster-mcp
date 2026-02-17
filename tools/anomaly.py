@@ -1,18 +1,12 @@
 import pandas as pd
 
-from .config import save_csv
+from .config import save_csv, read_tabular
 
 
 def compute_anomaly(path: str, columns: list[str], method: str = "zscore"):
-    """
-    Compute anomaly scores to highlight interesting targets.
-    Methods:
-    - 'zscore': Standard deviation from mean (Good for normal data).
-    - 'mad': Median Absolute Deviation (Better for data with crazy outliers).
-    - 'ratio': Value divided by background (mean).
-    """
+    """Compute anomaly scores. method: 'zscore', 'mad', or 'ratio'."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         df_new = df.copy()
 
         for col in columns:
@@ -43,18 +37,15 @@ def compute_anomaly(path: str, columns: list[str], method: str = "zscore"):
                 return "Error: Method not supported. Use 'zscore', 'mad', or 'ratio'."
 
         output_path = save_csv(df_new, path, f"anom_{method}")
-        return {"status": "success", "method": method, "output_path": output_path}
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def threshold(path: str, column: str, value: float, mode: str = "above"):
-    """
-    Filter data to keep only significant targets.
-    mode: 'above' (Keep > value) or 'below' (Keep < value).
-    """
+    """Filter rows by threshold. mode: 'above' or 'below'."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
 
         if column not in df.columns:
             return f"Error: Column {column} not found."
@@ -68,22 +59,15 @@ def threshold(path: str, column: str, value: float, mode: str = "above"):
 
         output_path = save_csv(df_filtered, path, f"thresh_{column}")
 
-        return {
-            "status": "success",
-            "original_count": len(df),
-            "filtered_count": len(df_filtered),
-            "output_path": output_path,
-        }
+        return {"output_path": output_path, "kept": len(df_filtered)}
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def rank_by_metric(path: str, metric: str, top_n: int = 10):
-    """
-    Sort the dataset to find the top N highest priority targets.
-    """
+    """Return top N rows sorted by metric descending."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
 
         if metric not in df.columns:
             return f"Error: Column {metric} not found."
@@ -93,11 +77,6 @@ def rank_by_metric(path: str, metric: str, top_n: int = 10):
 
         output_path = save_csv(df_sorted, path, f"top_{top_n}_{metric}")
 
-        return {
-            "status": "success",
-            "top_n": top_n,
-            "top_targets": df_sorted.to_dict(orient="records"),
-            "output_path": output_path,
-        }
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"

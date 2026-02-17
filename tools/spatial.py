@@ -12,7 +12,7 @@ from rasterio.warp import (
 from rasterio.mask import mask
 import numpy as np
 
-from .config import get_output_dir, save_raster
+from .config import get_output_dir, save_raster, read_tabular
 
 
 def reproject(
@@ -22,23 +22,13 @@ def reproject(
     y_col: str = None,
     source_crs: str = None,
 ):
-    """
-    Reproject a dataset to a new Coordinate Reference System (CRS).
-    Saves the output to a 'results/' directory.
-
-    Args:
-        path: File path to CSV or spatial file.
-        target_crs: The desired output CRS (default: EPSG:4326/LatLon).
-        x_col: Column name for Easting/Longitude (required for CSV).
-        y_col: Column name for Northing/Latitude (required for CSV).
-        source_crs: If the input has no CRS (like a CSV), specify it here (e.g., 'EPSG:32750').
-    """
+    """Reproject dataset to a new CRS. For CSV: provide x_col, y_col, source_crs."""
     try:
         if path.endswith(".csv"):
             if not x_col or not y_col:
                 return "Error: CSV files require 'x_col' and 'y_col' arguments."
 
-            df = pd.read_csv(path)
+            df = read_tabular(path)
             geometry = [Point(xy) for xy in zip(df[x_col], df[y_col])]
             gdf = gpd.GeoDataFrame(df, geometry=geometry)
 
@@ -71,23 +61,14 @@ def reproject(
         else:
             gdf_transformed.to_file(output_path, driver="GeoJSON")
 
-        return {
-            "status": "success",
-            "original_crs": str(gdf.crs),
-            "target_crs": target_crs,
-            "output_path": output_path,
-            "preview": gdf_transformed.head(3).to_dict(orient="records"),
-        }
+        return {"output_path": output_path, "target_crs": target_crs}
 
     except Exception as e:
         return f"Error reprojecting data: {str(e)}"
 
 
 def resample(path: str, scale_factor: float = 0.5):
-    """
-    Resample a raster to a new resolution (e.g., 0.5 = half size, 2.0 = double size).
-    Useful for aligning different map layers.
-    """
+    """Resample raster resolution (0.5=half, 2.0=double)."""
     try:
         with rasterio.open(path) as src:
             new_width = int(src.width * scale_factor)
@@ -120,12 +101,7 @@ def resample(path: str, scale_factor: float = 0.5):
                         resampling=Resampling.bilinear,
                     )
 
-            return {
-                "status": "success",
-                "original_size": [src.width, src.height],
-                "new_size": [new_width, new_height],
-                "output_path": output_path,
-            }
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error resampling: {str(e)}"
@@ -134,12 +110,7 @@ def resample(path: str, scale_factor: float = 0.5):
 def clip_to_extent(
     path: str, min_x: float, min_y: float, max_x: float, max_y: float, crs: str = None
 ):
-    """
-    Clip a raster to a specific bounding box (Extent).
-    Args:
-        crs: Coordinate system of the box (e.g., 'EPSG:4326').
-             If None, assumes the box uses the same CRS as the raster file.
-    """
+    """Clip raster to bounding box. crs defaults to raster's CRS."""
     try:
         with rasterio.open(path) as src:
             bbox = box(min_x, min_y, max_x, max_y)
@@ -170,21 +141,14 @@ def clip_to_extent(
             with rasterio.open(output_path, "w", **out_meta) as dest:
                 dest.write(out_image)
 
-            return {
-                "status": "success",
-                "output_path": output_path,
-                "bbox_used": [min_x, min_y, max_x, max_y],
-            }
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error clipping: {str(e)}"
 
 
 def align_grids(source_path: str, reference_path: str):
-    """
-    Align (warp) the source raster to match the exact grid, resolution, and CRS of the reference raster.
-    Essential for stacking layers before Machine Learning.
-    """
+    """Align source raster to match reference raster's grid and CRS."""
     try:
         with rasterio.open(reference_path) as ref:
             dst_crs = ref.crs
@@ -221,12 +185,7 @@ def align_grids(source_path: str, reference_path: str):
                         resampling=Resampling.bilinear,
                     )
 
-            return {
-                "status": "success",
-                "output_path": output_path,
-                "aligned_to": reference_path,
-                "new_dimensions": [dst_width, dst_height],
-            }
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error aligning grids: {str(e)}"

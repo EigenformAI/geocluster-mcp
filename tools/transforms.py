@@ -2,16 +2,13 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-from .config import save_csv
+from .config import save_csv, read_tabular
 
 
 def log_transform(path: str, columns: list[str], base: str = "e"):
-    """
-    Apply Log transformation (log1p to handle zeros).
-    Critical for geochemical elements like Gold (Au) which follow log-normal distribution.
-    """
+    """Log transform columns (log1p). base: 'e' or '10'."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         df_new = df.copy()
 
         for col in columns:
@@ -28,25 +25,15 @@ def log_transform(path: str, columns: list[str], base: str = "e"):
 
         output_path = save_csv(df_new, path, "log")
 
-        return {
-            "status": "success",
-            "transformed_columns": columns,
-            "output_path": output_path,
-            "preview": df_new[[c for c in df_new.columns if "log" in c]]
-            .head(3)
-            .to_dict(orient="records"),
-        }
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def standardize(path: str, columns: list[str]):
-    """
-    Z-Score Standardization (Mean=0, Std=1).
-    Best for algorithms that assume Gaussian distribution (e.g., K-Means, PCA).
-    """
+    """Z-score standardize columns (mean=0, std=1)."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         scaler = StandardScaler()
 
         data = df[columns].fillna(df[columns].mean())
@@ -61,22 +48,15 @@ def standardize(path: str, columns: list[str]):
 
         output_path = save_csv(df_new, path, "std")
 
-        return {
-            "status": "success",
-            "output_path": output_path,
-            "stats": df_new[new_cols].describe().to_dict(),
-        }
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def normalize(path: str, columns: list[str], method: str = "minmax"):
-    """
-    Scale data to a fixed range [0, 1].
-    Useful for Neural Networks or visualization.
-    """
+    """Normalize columns to [0,1] range."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
 
         if method == "minmax":
             scaler = MinMaxScaler()
@@ -97,11 +77,9 @@ def normalize(path: str, columns: list[str], method: str = "minmax"):
 
 
 def smooth(path: str, columns: list[str], window: int = 3, method: str = "mean"):
-    """
-    Apply a rolling window smoothing to remove noise from drillhole/line data.
-    """
+    """Rolling window smooth. method: 'mean' or 'median'."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         df_new = df.copy()
 
         for col in columns:

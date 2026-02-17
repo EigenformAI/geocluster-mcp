@@ -3,7 +3,7 @@ from sklearn.cluster import KMeans, DBSCAN
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from .config import save_csv
+from .config import save_csv, read_tabular
 
 try:
     import umap
@@ -19,17 +19,9 @@ def cluster(
     eps: float = 0.5,
     min_samples: int = 5,
 ):
-    """
-    Group similar data points into clusters (Unsupervised Learning).
-
-    Args:
-        algorithm: 'kmeans' (good for compact blobs) or 'dbscan' (good for outliers/noise).
-        n_clusters: Number of groups (Only for KMeans).
-        eps: Distance threshold (Only for DBSCAN).
-        min_samples: Min points to form a cluster (Only for DBSCAN).
-    """
+    """Cluster data. algorithm: 'kmeans' or 'dbscan'."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         data = df[columns].dropna()
 
         if data.empty:
@@ -58,12 +50,7 @@ def cluster(
 
         counts = df_new[f"cluster_{algorithm}"].value_counts().to_dict()
 
-        return {
-            "status": "success",
-            "algorithm": algorithm,
-            "cluster_counts": counts,
-            "output_path": output_path,
-        }
+        return {"output_path": output_path, "clusters": counts}
 
     except Exception as e:
         return f"Error clustering: {str(e)}"
@@ -72,12 +59,9 @@ def cluster(
 def reduce_dimensions(
     path: str, columns: list[str], method: str = "pca", n_components: int = 2
 ):
-    """
-    Reduce many columns into 2D/3D space for visualization.
-    Supported methods: 'pca' (Linear), 'umap' (Non-linear/Topological).
-    """
+    """Reduce dimensions. method: 'pca' or 'umap'."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         data = df[columns].dropna()
 
         scaler = StandardScaler()
@@ -115,12 +99,7 @@ def reduce_dimensions(
 
         output_path = save_csv(df_new, path, suffix)
 
-        return {
-            "status": "success",
-            "method": method,
-            "info": info_msg,
-            "output_path": output_path,
-        }
+        return {"output_path": output_path}
 
     except Exception as e:
         return f"Error reducing dimensions: {str(e)}"

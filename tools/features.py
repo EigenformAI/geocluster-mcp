@@ -9,7 +9,7 @@ from skimage.filters.rank import entropy
 from skimage.morphology import disk
 from skimage.util import img_as_ubyte
 
-from .config import save_raster, save_csv, get_output_dir
+from .config import save_raster, save_csv, get_output_dir, read_tabular
 
 
 def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
@@ -30,13 +30,32 @@ def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
             continue
         if isinstance(node, ast.Constant):
             continue
-        if isinstance(node, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv,
-                             ast.Mod, ast.Pow, ast.USub, ast.UAdd,
-                             ast.Gt, ast.Lt, ast.GtE, ast.LtE, ast.Eq, ast.NotEq)):
+        if isinstance(
+            node,
+            (
+                ast.Add,
+                ast.Sub,
+                ast.Mult,
+                ast.Div,
+                ast.FloorDiv,
+                ast.Mod,
+                ast.Pow,
+                ast.USub,
+                ast.UAdd,
+                ast.Gt,
+                ast.Lt,
+                ast.GtE,
+                ast.LtE,
+                ast.Eq,
+                ast.NotEq,
+            ),
+        ):
             continue
         if isinstance(node, ast.Name):
             if node.id not in allowed_names:
-                raise ValueError(f"Name '{node.id}' is not allowed. Allowed: {allowed_names}")
+                raise ValueError(
+                    f"Name '{node.id}' is not allowed. Allowed: {allowed_names}"
+                )
             continue
         if isinstance(node, ast.Attribute):
             # Only allow np.function_name (one level of attribute access)
@@ -45,10 +64,15 @@ def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
             raise ValueError("Attribute access not allowed except on 'np'")
         if isinstance(node, ast.Call):
             # Only allow calls to np.* functions
-            if isinstance(node.func, ast.Attribute) and \
-               isinstance(node.func.value, ast.Name) and node.func.value.id == "np":
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "np"
+            ):
                 continue
-            raise ValueError("Function calls only allowed on 'np' (e.g., np.log, np.sqrt)")
+            raise ValueError(
+                "Function calls only allowed on 'np' (e.g., np.log, np.sqrt)"
+            )
         if isinstance(node, ast.Subscript):
             continue
         if isinstance(node, (ast.BoolOp, ast.And, ast.Or)):
@@ -61,14 +85,7 @@ def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
 
 
 def select_bands(path: str, indices: list[int]):
-    """
-    Create a new raster containing only the selected bands.
-    Useful for extracting specific channels (e.g., Red/Near-Infrared) from satellite imagery.
-
-    Args:
-        path: Path to the input raster (GeoTIFF).
-        indices: List of band numbers to keep (1-based index, e.g., [1, 3]).
-    """
+    """Extract selected bands from raster. indices are 1-based."""
     try:
         with rasterio.open(path) as src:
             max_band = src.count
@@ -83,23 +100,14 @@ def select_bands(path: str, indices: list[int]):
             suffix = "bands_" + "-".join(map(str, indices))
             output_path = save_raster(data, meta, path, suffix)
 
-            return {
-                "status": "success",
-                "output_path": output_path,
-                "original_band_count": max_band,
-                "selected_bands": indices,
-            }
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error selecting bands: {str(e)}"
 
 
 def band_math(path: str, expression: str):
-    """
-    Apply mathematical expression to raster bands.
-    Use 'b1', 'b2', etc. to refer to bands.
-    Example: "(b1 - b2) / (b1 + b2)" or "np.log(b1)"
-    """
+    """Band math on raster. Use b1,b2.. e.g. '(b1-b2)/(b1+b2)'."""
     try:
         with rasterio.open(path) as src:
             meta = src.meta.copy()
@@ -130,25 +138,14 @@ def band_math(path: str, expression: str):
                 result.astype(np.float32), meta, path, f"math_{safe_expr}"
             )
 
-            return {
-                "status": "success",
-                "expression": expression,
-                "output_path": output_path,
-            }
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def compute_gradient(path: str, method: str = "sobel"):
-    """
-    Detect edges and structural changes using gradient filters.
-    Useful for finding fault lines/contacts in magnetic data.
-
-    Args:
-        path: Path to raster file.
-        method: Currently supports 'sobel'.
-    """
+    """Compute gradient (edge detection) on raster. method: 'sobel'."""
     try:
         with rasterio.open(path) as src:
             data = src.read(1)
@@ -163,17 +160,14 @@ def compute_gradient(path: str, method: str = "sobel"):
 
             output_path = save_raster(edges.astype(np.float32), meta, path, "gradient")
 
-            return {"status": "success", "method": method, "output_path": output_path}
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error computing gradient: {str(e)}"
 
 
 def texture_features(path: str, method: str = "entropy"):
-    """
-    Compute texture features (Roughness/Complexity).
-    Method: 'entropy' (complexity).
-    """
+    """Compute texture features on raster. method: 'entropy'."""
     try:
         with rasterio.open(path) as src:
             data = src.read(1)
@@ -198,19 +192,16 @@ def texture_features(path: str, method: str = "entropy"):
                 result.astype(np.float32), meta, path, f"texture_{method}"
             )
 
-            return {"status": "success", "method": method, "output_path": output_path}
+            return {"output_path": output_path}
 
     except Exception as e:
         return f"Error computing texture: {str(e)}"
 
 
 def select_columns(path: str, columns: list[str]):
-    """
-    Create a new CSV containing ONLY the selected columns.
-    Useful for removing noise/irrelevant data before Machine Learning.
-    """
+    """Keep only selected columns from CSV."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
 
         missing = [c for c in columns if c not in df.columns]
         if missing:
@@ -218,19 +209,16 @@ def select_columns(path: str, columns: list[str]):
 
         df_new = df[columns].copy()
         output_path = save_csv(df_new, path, "subset")
-        return {"status": "success", "output_path": output_path}
+        return {"output_path": output_path}
 
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def compute_ratios(path: str, pairs: list[str]):
-    """
-    Compute geochemical ratios (e.g., 'Au_ppb/Cu_ppm').
-    Input format: List of strings like ["Au_ppb/Cu_ppm"]
-    """
+    """Compute column ratios. pairs: ['Au_ppb/Cu_ppm']."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
         df_new = df.copy()
         created_cols = []
 
@@ -249,11 +237,7 @@ def compute_ratios(path: str, pairs: list[str]):
 
         output_path = save_csv(df_new, path, "ratios")
 
-        return {
-            "status": "success",
-            "new_ratios": created_cols,
-            "output_path": output_path,
-        }
+        return {"output_path": output_path}
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -265,18 +249,9 @@ def aggregate(
     x_col: str = "Easting",
     y_col: str = "Northing",
 ):
-    """
-    Aggregate data spatially (grid binning) or by category.
-
-    Args:
-        spatial_op:
-            - "grid:50" -> Bin coordinates into 50m blocks (Spatial).
-            - "col:RockType" -> Group by a specific column (Categorical).
-        statistic: 'mean', 'median', 'max', 'min', 'sum', 'count'.
-        x_col/y_col: Used only if spatial_op is 'grid:...'.
-    """
+    """Aggregate by grid ('grid:50') or column ('col:RockType'). statistic: mean/median/max/min/sum/count."""
     try:
-        df = pd.read_csv(path)
+        df = read_tabular(path)
 
         if spatial_op.startswith("grid:"):
             try:
@@ -328,12 +303,7 @@ def aggregate(
         safe_op = spatial_op.replace(":", "_")
         output_path = save_csv(df_agg, path, f"agg_{safe_op}_{statistic}")
 
-        return {
-            "status": "success",
-            "original_rows": len(df),
-            "aggregated_rows": len(df_agg),
-            "output_path": output_path,
-        }
+        return {"output_path": output_path, "rows": len(df_agg)}
 
     except Exception as e:
         return f"Error aggregating: {str(e)}"
