@@ -3,7 +3,7 @@ from fastmcp import FastMCP
 # Import tools from your modules
 from tools.hygiene import list_files, inspect_dataset, check_missing, inspect_raster, inspect_specific_columns, profile_geochem, query_data
 from tools.spatial import reproject, resample, clip_to_extent, align_grids
-from tools.transforms import normalize, standardize, log_transform, smooth
+from tools.transforms import normalize, standardize, log_transform, smooth, pivot, melt, merge_datasets, filter_rows, convert_dtype
 from tools.features import (
     select_bands,
     band_math,
@@ -45,6 +45,11 @@ mcp.tool()(normalize)
 mcp.tool()(standardize)
 mcp.tool()(log_transform)
 mcp.tool()(smooth)
+mcp.tool()(pivot)
+mcp.tool()(melt)
+mcp.tool()(merge_datasets)
+mcp.tool()(filter_rows)
+mcp.tool()(convert_dtype)
 
 
 # Section D: Features
