@@ -1,14 +1,7 @@
 from fastmcp import FastMCP
 
 # Import tools from your modules
-from tools.hygiene import (
-    list_files,
-    inspect_dataset,
-    check_missing,
-    inspect_raster,
-    inspect_specific_columns,
-    profile_geochem,
-)
+from tools.hygiene import list_files, inspect_dataset, check_missing, inspect_raster, inspect_specific_columns, profile_geochem, query_data
 from tools.spatial import reproject, resample, clip_to_extent, align_grids
 from tools.transforms import normalize, standardize, log_transform, smooth
 from tools.features import (
@@ -31,11 +24,13 @@ mcp = FastMCP("Geocluster MCP")
 
 # Section A: Hygiene
 mcp.tool()(list_files)
+# mcp.tool()(get_dataset_schema)
 mcp.tool()(inspect_dataset)
 mcp.tool()(inspect_specific_columns)
 mcp.tool()(inspect_raster)
 mcp.tool()(check_missing)
 mcp.tool()(profile_geochem)
+mcp.tool()(query_data)
 
 
 # Section B: Spatial
