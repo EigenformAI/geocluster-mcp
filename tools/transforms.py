@@ -1,6 +1,5 @@
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+# NOTE: Heavy imports (pandas, numpy, sklearn) deferred to function bodies
+# for fast MCP startup (<2s). See config.py header for rationale.
 
 from .config import save_csv, read_tabular
 
@@ -8,6 +7,8 @@ from .config import save_csv, read_tabular
 def log_transform(path: str, columns: list[str], base: str = "e"):
     """Log transform columns (log1p). base: 'e' or '10'."""
     try:
+        import numpy as np
+
         df = read_tabular(path)
         df_new = df.copy()
 
@@ -33,6 +34,8 @@ def log_transform(path: str, columns: list[str], base: str = "e"):
 def standardize(path: str, columns: list[str]):
     """Z-score standardize columns (mean=0, std=1)."""
     try:
+        from sklearn.preprocessing import StandardScaler
+
         df = read_tabular(path)
         scaler = StandardScaler()
 
@@ -56,6 +59,8 @@ def standardize(path: str, columns: list[str]):
 def normalize(path: str, columns: list[str], method: str = "minmax"):
     """Normalize columns to [0,1] range."""
     try:
+        from sklearn.preprocessing import MinMaxScaler
+
         df = read_tabular(path)
 
         if method == "minmax":
@@ -101,6 +106,8 @@ def smooth(path: str, columns: list[str], window: int = 3, method: str = "mean")
 def pivot(path: str, index: list[str], columns: str, values: list[str], aggfunc: str = "first"):
     """Pivot table: reshape long-to-wide. Creates columns from unique values in 'columns' field."""
     try:
+        import pandas as pd
+
         df = read_tabular(path)
 
         for col in index + [columns] + values:
@@ -125,6 +132,8 @@ def pivot(path: str, index: list[str], columns: str, values: list[str], aggfunc:
 def melt(path: str, id_vars: list[str], value_vars: list[str], var_name: str = "variable", value_name: str = "value"):
     """Melt (unpivot): reshape wide-to-long. Keeps id_vars fixed, melts value_vars into rows."""
     try:
+        import pandas as pd
+
         df = read_tabular(path)
 
         for col in id_vars + value_vars:
@@ -141,6 +150,7 @@ def melt(path: str, id_vars: list[str], value_vars: list[str], var_name: str = "
 def merge_datasets(path: str, right_path: str, on: list[str], how: str = "inner"):
     """Merge two datasets on shared columns. how: 'inner', 'outer', 'left', 'right'."""
     try:
+        import pandas as pd
         from .config import resolve_path
 
         resolve_path(path)
@@ -168,6 +178,8 @@ def merge_datasets(path: str, right_path: str, on: list[str], how: str = "inner"
 def filter_rows(path: str, column: str, operator: str, value: str = ""):
     """Filter rows by condition. operator: ==, !=, >, <, >=, <=, in, not_in, contains, not_null. For 'in'/'not_in', pass comma-separated values (e.g. '9989,138128,134159')."""
     try:
+        import pandas as pd
+
         df = read_tabular(path)
 
         if column not in df.columns:
@@ -235,6 +247,8 @@ def filter_rows(path: str, column: str, operator: str, value: str = ""):
 def convert_dtype(path: str, columns: list[str], dtype: str = "numeric", errors: str = "coerce"):
     """Convert column data types. dtype: 'numeric', 'int', 'float', 'str', 'datetime'. errors: 'coerce' (invalid→NaN), 'raise' (fail on invalid)."""
     try:
+        import pandas as pd
+
         df = read_tabular(path)
 
         for col in columns:

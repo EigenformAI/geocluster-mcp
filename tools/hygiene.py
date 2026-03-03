@@ -1,8 +1,8 @@
+# NOTE: Heavy imports (pandas, rasterio, numpy) deferred to function bodies
+# for fast MCP startup (<2s). See config.py header for rationale.
+
 import math
 import os
-import pandas as pd
-import rasterio
-import numpy as np
 from typing import List
 
 from .config import resolve_path, read_tabular
@@ -68,6 +68,8 @@ def inspect_dataset(path: str):
     """Load dataset into memory and return structural summary.
     The dataset remains cached for subsequent query_data calls."""
     try:
+        import pandas as pd
+
         df = dataframe_cache.load(path)
 
         col_info = {}
@@ -88,11 +90,13 @@ def inspect_dataset(path: str):
         }
     except Exception as e:
         return f"Error: {str(e)}"
-    
+
 
 def inspect_specific_columns(path: str, columns: List[str], get_stats: bool = False, get_unique_values: bool = False, get_value_counts: bool = False, max_unique: int = 30):
     """Column summary. get_stats for min/max, get_unique_values for value lists, get_value_counts for top values by frequency."""
     try:
+        import pandas as pd
+
         if not columns:
             return "Error: Specify columns. Run inspect_dataset() first."
 
@@ -145,6 +149,9 @@ def check_missing(path: str):
 def inspect_raster(path: str, verbose: bool = False):
     """Inspect raster (GeoTIFF). Set verbose=true for bounds, transform, and band stats."""
     try:
+        import rasterio
+        import numpy as np
+
         resolved_path = resolve_path(path)
         with rasterio.open(resolved_path) as src:
             info = {
@@ -254,6 +261,8 @@ def query_data(path: str, operation: str, columns: List[str] = None,
     - filter_summary: Count of rows matching expression, with column stats of filtered subset
     """
     try:
+        import pandas as pd
+
         df = dataframe_cache.get(path)
         if df is None:
             df = dataframe_cache.load(path)

@@ -1,7 +1,9 @@
+# NOTE: All heavy imports (pandas, rasterio, matplotlib) are deferred to
+# function bodies for fast MCP server startup (<2s). Do NOT add top-level
+# imports of heavy C-extension libraries here. Use inline imports instead.
+# After the first call, Python's sys.modules cache makes repeated imports free.
+
 import os
-import pandas as pd
-import rasterio
-import matplotlib.pyplot as plt
 
 WORKSPACE_ROOT = os.environ.get("MCP_WORKSPACE_ROOT", os.getcwd())
 
@@ -24,8 +26,10 @@ def resolve_path(path: str) -> str:
     return resolved
 
 
-def read_tabular(path: str, **kwargs) -> pd.DataFrame:
+def read_tabular(path: str, **kwargs):
     """Read CSV, Excel, or LAS file into DataFrame."""
+    import pandas as pd
+
     ext = os.path.splitext(path)[1].lower()
     if ext == ".csv":
         return pd.read_csv(path, **kwargs)
@@ -75,6 +79,7 @@ def save_csv(df, input_path: str, suffix: str) -> str:
 
 def save_raster(data, meta, input_path: str, suffix: str) -> str:
     """Save raster data to results folder next to input file."""
+    import rasterio
 
     resolved_path = resolve_path(input_path)
     output_dir = get_output_dir(resolved_path)
@@ -94,6 +99,8 @@ def save_raster(data, meta, input_path: str, suffix: str) -> str:
 
 def save_plot(input_path: str, suffix: str) -> str:
     """Save matplotlib plot to results folder next to input file."""
+    import matplotlib.pyplot as plt
+
     resolved_path = resolve_path(input_path)
     output_dir = get_output_dir(resolved_path)
     filename = os.path.basename(resolved_path)

@@ -1,17 +1,29 @@
+# NOTE: Heavy imports (matplotlib, seaborn, pandas, rasterio) deferred to
+# function bodies for fast MCP startup (<2s). See config.py header for rationale.
+# plt.switch_backend("Agg") is called once via _ensure_agg() before any plot.
+
 import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import rasterio
-from rasterio.plot import show
 from .config import save_plot, read_tabular
 
-plt.switch_backend("Agg")
+_backend_set = False
+
+
+def _ensure_agg():
+    """Set matplotlib to non-interactive Agg backend (once)."""
+    global _backend_set
+    if not _backend_set:
+        import matplotlib.pyplot as plt
+        plt.switch_backend("Agg")
+        _backend_set = True
 
 
 def plot_histogram(path: str, column: str, bins: int = 30):
     """Plot histogram of a column."""
     try:
+        _ensure_agg()
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
         df = read_tabular(path)
         if column not in df.columns:
             return f"Error: Column {column} not found."
@@ -32,6 +44,10 @@ def plot_histogram(path: str, column: str, bins: int = 30):
 def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
     """Scatter plot X vs Y, optional color_col."""
     try:
+        _ensure_agg()
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
         df = read_tabular(path)
         if x_col not in df.columns or y_col not in df.columns:
             return f"Error: Columns not found."
@@ -66,9 +82,14 @@ def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
 def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = None):
     """Plot map from raster (.tif) or CSV (provide x_col, y_col)."""
     try:
+        _ensure_agg()
+        import matplotlib.pyplot as plt
+
         plt.figure(figsize=(10, 10))
 
         if path.lower().endswith((".tif", ".tiff")):
+            import rasterio
+            from rasterio.plot import show
             with rasterio.open(path) as src:
                 show(src, title=os.path.basename(path), cmap="magma")
                 suffix = "map_raster"
@@ -107,6 +128,10 @@ def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = N
 def plot_clusters(path: str, x_col: str, y_col: str, cluster_col: str):
     """Scatter plot colored by cluster column."""
     try:
+        _ensure_agg()
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
         df = read_tabular(path)
 
         required = [x_col, y_col, cluster_col]

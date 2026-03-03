@@ -1,9 +1,9 @@
+# NOTE: Heavy imports (pandas, geopandas) deferred to function bodies for fast MCP startup.
+
 import os
 import time
 import json
 import zipfile
-import pandas as pd
-import geopandas as gpd
 
 from .config import get_output_dir, resolve_path
 
@@ -106,6 +106,7 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
             return "Error: xlsx export only works for CSV files."
 
         try:
+            import pandas as pd
             df = pd.read_csv(resolved_file)
             excel_path = resolved_file.replace(".csv", ".xlsx")
             df.to_excel(excel_path, index=False)
@@ -115,6 +116,8 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
 
     elif format == "geojson":
         try:
+            import pandas as pd
+            import geopandas as gpd
             df = pd.read_csv(resolved_file)
 
             x_col = next(

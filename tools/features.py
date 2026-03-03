@@ -1,13 +1,8 @@
+# NOTE: Heavy imports (numpy, rasterio, pandas, skimage) deferred to function
+# bodies for fast MCP startup (<2s). See config.py header for rationale.
+
 import ast
 import os
-
-import numpy as np
-import pandas as pd
-import rasterio
-from skimage.filters import sobel
-from skimage.filters.rank import entropy
-from skimage.morphology import disk
-from skimage.util import img_as_ubyte
 
 from .config import save_raster, save_csv, get_output_dir, read_tabular
 
@@ -87,6 +82,8 @@ def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
 def select_bands(path: str, indices: list[int]):
     """Extract selected bands from raster. indices are 1-based."""
     try:
+        import rasterio
+
         with rasterio.open(path) as src:
             max_band = src.count
             if any(i < 1 or i > max_band for i in indices):
@@ -109,6 +106,9 @@ def select_bands(path: str, indices: list[int]):
 def band_math(path: str, expression: str):
     """Band math on raster. Use b1,b2.. e.g. '(b1-b2)/(b1+b2)'."""
     try:
+        import numpy as np
+        import rasterio
+
         with rasterio.open(path) as src:
             meta = src.meta.copy()
             bands = {f"b{i}": src.read(i) for i in range(1, src.count + 1)}
@@ -147,6 +147,10 @@ def band_math(path: str, expression: str):
 def compute_gradient(path: str, method: str = "sobel"):
     """Compute gradient (edge detection) on raster. method: 'sobel'."""
     try:
+        import numpy as np
+        import rasterio
+        from skimage.filters import sobel
+
         with rasterio.open(path) as src:
             data = src.read(1)
             meta = src.meta.copy()
@@ -169,6 +173,12 @@ def compute_gradient(path: str, method: str = "sobel"):
 def texture_features(path: str, method: str = "entropy"):
     """Compute texture features on raster. method: 'entropy'."""
     try:
+        import numpy as np
+        import rasterio
+        from skimage.filters.rank import entropy
+        from skimage.morphology import disk
+        from skimage.util import img_as_ubyte
+
         with rasterio.open(path) as src:
             data = src.read(1)
             meta = src.meta.copy()
@@ -251,6 +261,8 @@ def aggregate(
 ):
     """Aggregate by grid ('grid:50') or column ('col:RockType'). statistic: mean/median/max/min/sum/count."""
     try:
+        import numpy as np
+
         df = read_tabular(path)
 
         if spatial_op.startswith("grid:"):

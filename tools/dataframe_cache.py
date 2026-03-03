@@ -5,12 +5,18 @@ Shared across all tool calls within the MCP server process.
 DataFrames are cached by resolved path and auto-invalidated when
 the underlying file changes on disk. Evicts least-recently-used
 entries when total memory exceeds MAX_CACHE_MB.
+
+NOTE: Heavy imports (pandas) are deferred to function bodies for fast startup.
 """
+from __future__ import annotations
+
 import logging
 import os
 import time
-import pandas as pd
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from .config import resolve_path, read_tabular
 
@@ -18,13 +24,13 @@ logger = logging.getLogger("geocluster-mcp.cache")
 
 MAX_CACHE_MB = int(os.environ.get("MCP_CACHE_MAX_MB", "512"))
 
-# resolved_path → (df, mtime, last_access_time)
-_cache: dict[str, tuple[pd.DataFrame, float, float]] = {}
+# resolved_path -> (df, mtime, last_access_time)
+_cache: dict[str, tuple] = {}
 
 _stats = {"hits": 0, "misses": 0, "evictions": 0}
 
 
-def _memory_bytes(df: pd.DataFrame) -> int:
+def _memory_bytes(df) -> int:
     return int(df.memory_usage(deep=True).sum())
 
 

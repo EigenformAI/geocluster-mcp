@@ -1,4 +1,4 @@
-import pandas as pd
+# NOTE: Heavy imports deferred to function bodies for fast MCP startup.
 
 from .config import save_csv, read_tabular
 

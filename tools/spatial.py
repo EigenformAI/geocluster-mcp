@@ -1,16 +1,7 @@
-import pandas as pd
-import geopandas as gpd
-from shapely.geometry import Point, box
+# NOTE: Heavy imports (pandas, geopandas, shapely, rasterio, numpy) deferred
+# to function bodies for fast MCP startup (<2s). See config.py header for rationale.
+
 import os
-import rasterio
-from rasterio.enums import Resampling
-from rasterio.warp import (
-    calculate_default_transform,
-    reproject as rio_reproject,
-    Resampling,
-)
-from rasterio.mask import mask
-import numpy as np
 
 from .config import get_output_dir, save_raster, read_tabular
 
@@ -24,6 +15,10 @@ def reproject(
 ):
     """Reproject dataset to a new CRS. For CSV: provide x_col, y_col, source_crs."""
     try:
+        import pandas as pd
+        import geopandas as gpd
+        from shapely.geometry import Point
+
         if path.endswith(".csv"):
             if not x_col or not y_col:
                 return "Error: CSV files require 'x_col' and 'y_col' arguments."
@@ -70,6 +65,10 @@ def reproject(
 def resample(path: str, scale_factor: float = 0.5):
     """Resample raster resolution (0.5=half, 2.0=double)."""
     try:
+        import rasterio
+        from rasterio.warp import reproject as rio_reproject
+        from rasterio.enums import Resampling
+
         with rasterio.open(path) as src:
             new_width = int(src.width * scale_factor)
             new_height = int(src.height * scale_factor)
@@ -112,6 +111,11 @@ def clip_to_extent(
 ):
     """Clip raster to bounding box. crs defaults to raster's CRS."""
     try:
+        import rasterio
+        import geopandas as gpd
+        from shapely.geometry import box
+        from rasterio.mask import mask
+
         with rasterio.open(path) as src:
             bbox = box(min_x, min_y, max_x, max_y)
 
@@ -150,6 +154,10 @@ def clip_to_extent(
 def align_grids(source_path: str, reference_path: str):
     """Align source raster to match reference raster's grid and CRS."""
     try:
+        import rasterio
+        from rasterio.warp import reproject as rio_reproject
+        from rasterio.enums import Resampling
+
         with rasterio.open(reference_path) as ref:
             dst_crs = ref.crs
             dst_transform = ref.transform

@@ -1,14 +1,7 @@
-import pandas as pd
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+# NOTE: Heavy imports (pandas, sklearn, umap) deferred to function bodies
+# for fast MCP startup (<2s). See config.py header for rationale.
 
 from .config import save_csv, read_tabular
-
-try:
-    import umap
-except ImportError:
-    umap = None
 
 
 def cluster(
@@ -21,6 +14,9 @@ def cluster(
 ):
     """Cluster data. algorithm: 'kmeans' or 'dbscan'."""
     try:
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans, DBSCAN
+
         df = read_tabular(path)
         data = df[columns].dropna()
 
@@ -61,6 +57,9 @@ def reduce_dimensions(
 ):
     """Reduce dimensions. method: 'pca' or 'umap'."""
     try:
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.decomposition import PCA
+
         df = read_tabular(path)
         data = df[columns].dropna()
 
@@ -80,7 +79,9 @@ def reduce_dimensions(
 
         elif method == "umap":
             # UMAP (Uniform Manifold Approximation and Projection)
-            if umap is None:
+            try:
+                import umap
+            except ImportError:
                 return "Error: 'umap-learn' library is not installed. Run 'uv add umap-learn'."
 
             reducer = umap.UMAP(n_components=n_components, random_state=42)
