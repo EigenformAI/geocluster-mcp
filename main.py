@@ -17,6 +17,15 @@ from tools.anomaly import compute_anomaly, threshold, rank_by_metric
 from tools.clustering import reduce_dimensions, cluster
 from tools.visualization import plot_scatter, plot_map, plot_histogram, plot_clusters
 from tools.provenance import summarize_provenance, export_artifact
+from tools.verification import verify_claims
+from tools.cleaning import (
+    validate_geology,
+    detect_cleaning_issues,
+    fix_decimals,
+    parse_detection_limits,
+    remove_duplicates,
+    standardize_terms,
+)
 
 mcp = FastMCP("Geocluster MCP")
 
@@ -83,6 +92,19 @@ mcp.tool()(plot_clusters)
 # Section H: Provenance & Export
 mcp.tool()(summarize_provenance)
 mcp.tool()(export_artifact)
+
+
+# Section I: Data Cleaning
+mcp.tool()(validate_geology)
+mcp.tool()(detect_cleaning_issues)
+mcp.tool()(fix_decimals)
+mcp.tool()(parse_detection_limits)
+mcp.tool()(remove_duplicates)
+mcp.tool()(standardize_terms)
+
+
+# Section J: Verification
+mcp.tool()(verify_claims)
 
 if __name__ == "__main__":
     # mcp.run()
