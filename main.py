@@ -26,6 +26,13 @@ from tools.cleaning import (
     remove_duplicates,
     standardize_terms,
 )
+from tools.training import (
+    start_training_session,
+    generate_hypotheses,
+    evaluate_hypotheses,
+    end_training_session,
+    get_training_stats,
+)
 
 mcp = FastMCP("Geocluster MCP")
 
@@ -105,6 +112,14 @@ mcp.tool()(standardize_terms)
 
 # Section J: Verification
 mcp.tool()(verify_claims)
+
+
+# Section K: Training Data Collection
+mcp.tool()(start_training_session)
+mcp.tool()(generate_hypotheses)
+mcp.tool()(evaluate_hypotheses)
+mcp.tool()(end_training_session)
+mcp.tool()(get_training_stats)
 
 if __name__ == "__main__":
     # mcp.run()
