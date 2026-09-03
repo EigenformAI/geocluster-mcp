@@ -1,8 +1,8 @@
 # Geocluster MCP
 
-An [MCP](https://modelcontextprotocol.io) server that gives an LLM agent a working toolkit for **exploration geoscience data**. Inspect and clean drill-hole, geochemistry and geophysics datasets, run spatial operations on rasters, engineer features, detect anomalies, cluster, plot, and export, all from natural-language requests.
+LLMs are good at reasoning about geoscience data and bad at actually touching it: they will happily describe a clustering they never ran or quote a grade that is not in the file. Geocluster MCP closes that gap. It is a [Model Context Protocol](https://modelcontextprotocol.io) server that hands an agent about 50 real tools for exploration data, so a request like *"clean this drillhole geochemistry, cluster it, rank the anomalies, and plot them over the magnetic survey"* runs as actual pandas, rasterio, and scikit-learn calls against your files.
 
-Every file operation is confined to one workspace directory, and every tool writes its output to a `results/` folder next to the input rather than mutating it. A `verify_claims` tool checks the numbers an agent reports back against the source data, so a hallucinated grade or coordinate is caught rather than trusted.
+Every operation is sandboxed to one workspace directory and writes its output to a `results/` folder next to the input rather than overwriting it. A `verify_claims` tool checks the numbers an agent reports back against the source data, so a hallucinated grade or coordinate is caught rather than trusted.
 
 - **Inputs:** CSV, Excel, and LAS (well logs) for tabular data; GeoTIFF for rasters.
 - **Built with:** [FastMCP](https://github.com/jlowin/fastmcp), pandas, GeoPandas, rasterio, scikit-learn, UMAP.
@@ -128,3 +128,23 @@ Each tool writes to a `results/` folder next to the file it read, named `<input>
 - **Fast startup:** heavy libraries (pandas, rasterio, matplotlib) are imported inside the functions that use them, so the server is ready in under two seconds.
 - **DataFrame cache:** datasets are cached by resolved path with an mtime check and a memory budget, so repeated tool calls on the same file do not re-read it.
 - **Workspace isolation:** `resolve_path` refuses any path outside `MCP_WORKSPACE_ROOT`.
+
+## FAQ
+
+**Which MCP clients does this work with?**
+Any client that speaks MCP over SSE, and any stdio client after the one-line change in `main.py`. That includes Claude Desktop, Cline, Cursor, and others.
+
+**Does the server need an API key?**
+No. It runs locally and calls no external services. The model doing the reasoning lives on the client side, and that is where an API key (if any) is configured.
+
+**Can it overwrite or damage my data?**
+No. Inputs are read-only, every result is written to a `results/` folder, and any path outside the workspace is rejected.
+
+**Is my data sent anywhere?**
+The tools execute locally on your machine. Only what the agent chooses to read back (tool outputs and summaries) reaches whatever model your MCP client is configured to use.
+
+**Is it geology-specific, or does it work on any tabular and raster data?**
+The spatial, transform, clustering, anomaly, and plotting tools are generic. The cleaning tools (`validate_geology`, `parse_detection_limits`, `profile_geochem`) assume drillhole and assay conventions.
+
+**How is this different from just asking a model to write pandas code?**
+The tools are pre-built, input-validated, and consistent between runs. The agent composes them instead of regenerating fragile scripts each time, and `verify_claims` audits the numbers afterwards.
