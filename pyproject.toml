@@ -1,7 +1,7 @@
 [project]
 name = "geocluster-mcp"
 version = "0.1.0"
-description = "Geocluster MCP"
+description = "MCP server that gives LLM agents ~50 tools for exploration-geoscience data: inspection, cleaning, spatial ops, feature engineering, clustering, anomaly detection, and visualization for raster and tabular data."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
