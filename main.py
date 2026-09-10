@@ -1,4 +1,10 @@
+import logging
+import os
+
 from fastmcp import FastMCP
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+
+from training.session import get_session_manager
 
 # Import tools from your modules
 from tools.hygiene import list_files, inspect_dataset, check_missing, inspect_raster, inspect_specific_columns, profile_geochem, query_data
@@ -33,8 +39,92 @@ from tools.training import (
     end_training_session,
     get_training_stats,
 )
+from tools.voxel import (
+    voxel_init_grid,
+    voxel_get_grid,
+    voxel_add_point,
+    voxel_add_line,
+    voxel_add_box,
+    voxel_upsert_geometry,
+    voxel_set_layer_array,
+    voxel_probe_region,
+    voxel_list_layers,
+    voxel_history,
+    voxel_export_bundle,
+)
 
 mcp = FastMCP("Geocluster MCP")
+
+_training_log = logging.getLogger("geocluster.training")
+
+# Tools that drive the training lifecycle itself — skip to avoid recursion
+# and to keep the session's tool_calls log focused on the analysis trace
+# that the hypothesis-generation prompt will see.
+_TRAINING_LIFECYCLE_TOOLS = frozenset({
+    "start_training_session",
+    "generate_hypotheses",
+    "evaluate_hypotheses",
+    "end_training_session",
+    "get_training_stats",
+})
+
+
+def _serialize_tool_result(result):
+    """Convert a FastMCP ToolResult to a JSON-safe dict for session storage.
+
+    Prefers structured_content (dict) because evaluate_hypotheses expects
+    keys like 'clusters', 'anomaly_count', 'pairs' for mechanical grading.
+    Falls back to concatenated text content, then str(result).
+    """
+    structured = getattr(result, "structured_content", None)
+    if isinstance(structured, dict):
+        return structured
+    content = getattr(result, "content", None)
+    if isinstance(content, list):
+        texts = [getattr(b, "text", None) for b in content if getattr(b, "text", None)]
+        if texts:
+            return {"text": "\n".join(texts)}
+    return {"repr": str(result)}
+
+
+class TrainingCaptureMiddleware(Middleware):
+    """Appends every non-lifecycle tool invocation to the active training session.
+
+    No-ops when no session is active or when TRAINING_CAPTURE_ENABLED=0.
+    Never raises — recording failures are logged and swallowed so analysis
+    tool results always reach the specialist unchanged.
+    """
+
+    async def on_call_tool(
+        self, context: MiddlewareContext, call_next: CallNext
+    ):
+        result = await call_next(context)
+
+        if os.environ.get("TRAINING_CAPTURE_ENABLED", "1") != "1":
+            return result
+
+        tool_name = getattr(context.message, "name", None)
+        if not tool_name or tool_name in _TRAINING_LIFECYCLE_TOOLS:
+            return result
+
+        try:
+            manager = get_session_manager()
+            session = manager.get_active_session()
+            if session is None or session.finalized:
+                return result
+            args = getattr(context.message, "arguments", {}) or {}
+            session.record_call(tool_name, dict(args), _serialize_tool_result(result))
+        except Exception as exc:
+            _training_log.warning(
+                "TrainingCaptureMiddleware: failed to record %s: %s",
+                tool_name,
+                exc,
+            )
+
+        return result
+
+
+mcp.add_middleware(TrainingCaptureMiddleware())
 
 # --- Register Tools ---
 
@@ -120,6 +210,20 @@ mcp.tool()(generate_hypotheses)
 mcp.tool()(evaluate_hypotheses)
 mcp.tool()(end_training_session)
 mcp.tool()(get_training_stats)
+
+
+# Section L: Voxel store + viewer bundle (voxel specialist only — names are the ACL)
+mcp.tool()(voxel_init_grid)
+mcp.tool()(voxel_get_grid)
+mcp.tool()(voxel_add_point)
+mcp.tool()(voxel_add_line)
+mcp.tool()(voxel_add_box)
+mcp.tool()(voxel_upsert_geometry)
+mcp.tool()(voxel_set_layer_array)
+mcp.tool()(voxel_probe_region)
+mcp.tool()(voxel_list_layers)
+mcp.tool()(voxel_history)
+mcp.tool()(voxel_export_bundle)
 
 if __name__ == "__main__":
     # mcp.run()
