@@ -2,9 +2,6 @@ import logging
 import os
 
 from fastmcp import FastMCP
-from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-
-from training.session import get_session_manager
 
 # Import tools from your modules
 from tools.hygiene import list_files, inspect_dataset, check_missing, inspect_raster, inspect_specific_columns, profile_geochem, query_data
@@ -32,13 +29,6 @@ from tools.cleaning import (
     remove_duplicates,
     standardize_terms,
 )
-from tools.training import (
-    start_training_session,
-    generate_hypotheses,
-    evaluate_hypotheses,
-    end_training_session,
-    get_training_stats,
-)
 from tools.voxel import (
     voxel_init_grid,
     voxel_get_grid,
@@ -53,78 +43,103 @@ from tools.voxel import (
     voxel_export_bundle,
 )
 
+# Section K (training data collection: the five *_training_* tools plus the
+# middleware that records every tool call into the active session) is parked.
+# Set GEOCLUSTER_TRAINING_ENABLED=1 to register it; default off so the server
+# and the specialists never depend on the training package.
+TRAINING_ENABLED = os.environ.get("GEOCLUSTER_TRAINING_ENABLED", "0") == "1"
+
 mcp = FastMCP("Geocluster MCP")
 
 _training_log = logging.getLogger("geocluster.training")
 
-# Tools that drive the training lifecycle itself — skip to avoid recursion
-# and to keep the session's tool_calls log focused on the analysis trace
-# that the hypothesis-generation prompt will see.
-_TRAINING_LIFECYCLE_TOOLS = frozenset({
-    "start_training_session",
-    "generate_hypotheses",
-    "evaluate_hypotheses",
-    "end_training_session",
-    "get_training_stats",
-})
 
+def _install_training(mcp_server: FastMCP) -> None:
+    """Register Section K tools and the capture middleware (opt-in)."""
+    from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
-def _serialize_tool_result(result):
-    """Convert a FastMCP ToolResult to a JSON-safe dict for session storage.
+    from tools.training import (
+        start_training_session,
+        generate_hypotheses,
+        evaluate_hypotheses,
+        end_training_session,
+        get_training_stats,
+    )
+    from training.session import get_session_manager
 
-    Prefers structured_content (dict) because evaluate_hypotheses expects
-    keys like 'clusters', 'anomaly_count', 'pairs' for mechanical grading.
-    Falls back to concatenated text content, then str(result).
-    """
-    structured = getattr(result, "structured_content", None)
-    if isinstance(structured, dict):
-        return structured
-    content = getattr(result, "content", None)
-    if isinstance(content, list):
-        texts = [getattr(b, "text", None) for b in content if getattr(b, "text", None)]
-        if texts:
-            return {"text": "\n".join(texts)}
-    return {"repr": str(result)}
+    # Tools that drive the training lifecycle itself — skip to avoid recursion
+    # and to keep the session's tool_calls log focused on the analysis trace
+    # that the hypothesis-generation prompt will see.
+    lifecycle_tools = frozenset({
+        "start_training_session",
+        "generate_hypotheses",
+        "evaluate_hypotheses",
+        "end_training_session",
+        "get_training_stats",
+    })
 
+    def _serialize_tool_result(result):
+        """Convert a FastMCP ToolResult to a JSON-safe dict for session storage.
 
-class TrainingCaptureMiddleware(Middleware):
-    """Appends every non-lifecycle tool invocation to the active training session.
+        Prefers structured_content (dict) because evaluate_hypotheses expects
+        keys like 'clusters', 'anomaly_count', 'pairs' for mechanical grading.
+        Falls back to concatenated text content, then str(result).
+        """
+        structured = getattr(result, "structured_content", None)
+        if isinstance(structured, dict):
+            return structured
+        content = getattr(result, "content", None)
+        if isinstance(content, list):
+            texts = [getattr(b, "text", None) for b in content if getattr(b, "text", None)]
+            if texts:
+                return {"text": "\n".join(texts)}
+        return {"repr": str(result)}
 
-    No-ops when no session is active or when TRAINING_CAPTURE_ENABLED=0.
-    Never raises — recording failures are logged and swallowed so analysis
-    tool results always reach the specialist unchanged.
-    """
+    class TrainingCaptureMiddleware(Middleware):
+        """Appends every non-lifecycle tool invocation to the active training session.
 
-    async def on_call_tool(
-        self, context: MiddlewareContext, call_next: CallNext
-    ):
-        result = await call_next(context)
+        No-ops when no session is active or when TRAINING_CAPTURE_ENABLED=0.
+        Never raises — recording failures are logged and swallowed so analysis
+        tool results always reach the specialist unchanged.
+        """
 
-        if os.environ.get("TRAINING_CAPTURE_ENABLED", "1") != "1":
-            return result
+        async def on_call_tool(
+            self, context: MiddlewareContext, call_next: CallNext
+        ):
+            result = await call_next(context)
 
-        tool_name = getattr(context.message, "name", None)
-        if not tool_name or tool_name in _TRAINING_LIFECYCLE_TOOLS:
-            return result
-
-        try:
-            manager = get_session_manager()
-            session = manager.get_active_session()
-            if session is None or session.finalized:
+            if os.environ.get("TRAINING_CAPTURE_ENABLED", "1") != "1":
                 return result
-            args = getattr(context.message, "arguments", {}) or {}
-            session.record_call(tool_name, dict(args), _serialize_tool_result(result))
-        except Exception as exc:
-            _training_log.warning(
-                "TrainingCaptureMiddleware: failed to record %s: %s",
-                tool_name,
-                exc,
-            )
 
-        return result
+            tool_name = getattr(context.message, "name", None)
+            if not tool_name or tool_name in lifecycle_tools:
+                return result
 
+            try:
+                manager = get_session_manager()
+                session = manager.get_active_session()
+                if session is None or session.finalized:
+                    return result
+                args = getattr(context.message, "arguments", {}) or {}
+                session.record_call(tool_name, dict(args), _serialize_tool_result(result))
+            except Exception as exc:
+                _training_log.warning(
+                    "TrainingCaptureMiddleware: failed to record %s: %s",
+                    tool_name,
+                    exc,
+                )
 
-mcp.add_middleware(TrainingCaptureMiddleware())
+            return result
+
+    mcp_server.add_middleware(TrainingCaptureMiddleware())
+
+    # Section K: Training Data Collection
+    mcp_server.tool()(start_training_session)
+    mcp_server.tool()(generate_hypotheses)
+    mcp_server.tool()(evaluate_hypotheses)
+    mcp_server.tool()(end_training_session)
+    mcp_server.tool()(get_training_stats)
+
 
 # --- Register Tools ---
 
@@ -204,12 +219,9 @@ mcp.tool()(standardize_terms)
 mcp.tool()(verify_claims)
 
 
-# Section K: Training Data Collection
-mcp.tool()(start_training_session)
-mcp.tool()(generate_hypotheses)
-mcp.tool()(evaluate_hypotheses)
-mcp.tool()(end_training_session)
-mcp.tool()(get_training_stats)
+# Section K: Training Data Collection (opt-in, see TRAINING_ENABLED above)
+if TRAINING_ENABLED:
+    _install_training(mcp)
 
 
 # Section L: Voxel store + viewer bundle (voxel specialist only — names are the ACL)
