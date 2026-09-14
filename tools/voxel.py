@@ -80,8 +80,9 @@ def voxel_init_grid(
     cell_size_z_m: float | None = None,
     padding_m: float = 0.0,
     overwrite: bool = False,
+    resolution: str | None = None,
 ) -> dict[str, Any]:
-    """Create the project voxel grid from a dataset's coordinate/depth bounds (projected metres). Default 64x64x16; set shape or cell sizes to change it."""
+    """Create the project voxel grid from a dataset's coordinate/depth bounds (projected metres). Default 64x64x16; set resolution ("standard", "detailed", "finest") or shape/cell sizes to change it."""
     try:
         from voxel.grid_from_dataset import derive_grid
         from voxel.spatial import SpatialVoxelStore
@@ -102,7 +103,7 @@ def voxel_init_grid(
 
         resolved = resolve_path(dataset_path)
         grid, info = derive_grid(resolved, shape=shape, cell_size_xy_m=cell_size_xy_m,
-                                 cell_size_z_m=cell_size_z_m, padding_m=padding_m)
+                                 cell_size_z_m=cell_size_z_m, padding_m=padding_m, resolution=resolution)
         info["dataset_path"] = _relative_to_workspace(resolved)
         store = SpatialVoxelStore(store_dir, grid, meta={"dataset": info, "coordinate_conversion": info["coordinate_conversion"]})
         return {

@@ -42,6 +42,12 @@ from tools.voxel import (
     voxel_history,
     voxel_export_bundle,
 )
+from tools.text_classify import (
+    classify_text_pick_field,
+    classify_text_discover,
+    classify_text_grid_options,
+    classify_text_build_layers,
+)
 
 # Section K (training data collection: the five *_training_* tools plus the
 # middleware that records every tool call into the active session) is parked.
@@ -236,6 +242,14 @@ mcp.tool()(voxel_probe_region)
 mcp.tool()(voxel_list_layers)
 mcp.tool()(voxel_history)
 mcp.tool()(voxel_export_bundle)
+
+
+# Section M: Text classification — the IDE "Classify with AI" pipeline
+# (Cline classify mode only — names are the ACL, see tools/text_classify.py)
+mcp.tool()(classify_text_pick_field)
+mcp.tool()(classify_text_discover)
+mcp.tool()(classify_text_grid_options)
+mcp.tool()(classify_text_build_layers)
 
 if __name__ == "__main__":
     # mcp.run()
