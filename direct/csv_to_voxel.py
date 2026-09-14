@@ -208,6 +208,55 @@ def build_records(
     return {"records": geo["records"], "stats": stats}
 
 
+def ensure_grid(
+    dataset_path: str,
+    resolution: str | None = None,
+    rebuild: bool = False,
+    grid_shape: list[int] | None = None,
+    cell_size_xy_m: float | None = None,
+    cell_size_z_m: float | None = None,
+) -> dict[str, Any]:
+    """The project's voxel grid: the existing one (``resolution`` is ignored
+    then), unless ``rebuild`` -- which DISCARDS every stored layer -- or none
+    exists yet, in which case a new one is derived from this dataset at
+    ``resolution`` / shape / cell sizes. Call with the project lock held.
+    """
+    from tools.voxel import voxel_get_grid, voxel_init_grid
+
+    if rebuild:
+        _log.info("rebuilding grid at resolution=%s, discarding layers=%s", resolution, _current_layer_names())
+    else:
+        existing = voxel_get_grid()
+        if existing.get("success"):
+            return existing
+        _log.info("no existing grid (%s) -- calling voxel_init_grid", existing.get("error"))
+    result = voxel_init_grid(
+        dataset_path=dataset_path, shape=grid_shape, cell_size_xy_m=cell_size_xy_m,
+        cell_size_z_m=cell_size_z_m, resolution=resolution, overwrite=rebuild,
+    )
+    _log.info("voxel_init_grid -> success=%s layers_now=%s", result.get("success"), _current_layer_names())
+    return result
+
+
+def grid_info(dataset_path: str) -> dict[str, Any]:
+    """What the IDE shows before a build: the project's current grid (if any,
+    with its layers) and the grid each resolution preset would give for this
+    dataset. Read-only.
+    """
+    from tools.voxel import voxel_get_grid
+    from voxel.grid_from_dataset import preview_resolutions
+
+    current = voxel_get_grid()
+    exists = bool(current.get("success"))
+    layers = [entry.get("name") if isinstance(entry, dict) else entry for entry in (current.get("layers") or [])]
+    return {
+        "success": True,
+        "exists": exists,
+        "current": {"grid": current.get("grid"), "layers": layers} if exists else None,
+        "presets": preview_resolutions(resolve_path(dataset_path)),
+    }
+
+
 def csv_to_voxel(
     dataset_path: str,
     value_col: str,
@@ -218,14 +267,17 @@ def csv_to_voxel(
     cell_size_xy_m: float | None = None,
     cell_size_z_m: float | None = None,
     combination_rule: str = "max",
+    resolution: str | None = None,
+    rebuild_grid: bool = False,
 ) -> dict[str, Any]:
     """End to end: clean -> stamp into the project's voxel store -> export
     the viewer bundle (viz/manifest.json + viz/layers/*). Reuses the
     project's existing grid if one is already initialised (so multiple
     layers/elements from the same CSV share one grid); otherwise derives a
-    new one from this dataset's coordinate/depth bounds.
+    new one from this dataset's coordinate/depth bounds at ``resolution``.
+    ``rebuild_grid`` replaces the grid first and discards every stored layer.
     """
-    from tools.voxel import voxel_export_bundle, voxel_get_grid, voxel_init_grid, voxel_upsert_geometry
+    from tools.voxel import voxel_export_bundle, voxel_upsert_geometry
 
     _log.info("csv_to_voxel start: dataset=%s value_col=%s layer=%s filter=%s=%s",
               dataset_path, value_col, layer, filter_col, filter_value)
@@ -241,16 +293,12 @@ def csv_to_voxel(
         records, stats = built["records"], built["stats"]
         records_path = save_csv(records, dataset_path, f"voxel_records_{layer}")
 
-        grid_result = voxel_get_grid()
+        grid_result = ensure_grid(
+            dataset_path, resolution=resolution, rebuild=rebuild_grid,
+            grid_shape=grid_shape, cell_size_xy_m=cell_size_xy_m, cell_size_z_m=cell_size_z_m,
+        )
         if not grid_result.get("success"):
-            _log.info("no existing grid (%s) -- calling voxel_init_grid", grid_result.get("error"))
-            grid_result = voxel_init_grid(
-                dataset_path=dataset_path, shape=grid_shape,
-                cell_size_xy_m=cell_size_xy_m, cell_size_z_m=cell_size_z_m,
-            )
-            _log.info("voxel_init_grid -> success=%s layers_now=%s", grid_result.get("success"), _current_layer_names())
-            if not grid_result.get("success"):
-                return {"success": False, "step": "voxel_init_grid", "cleaning": stats, **grid_result}
+            return {"success": False, "step": "voxel_init_grid", "cleaning": stats, **grid_result}
 
         upsert_result = voxel_upsert_geometry(
             layer=layer, records_path=records_path, value_col="value",
@@ -383,9 +431,16 @@ def _cli() -> None:
     conv.add_argument("--layer", required=True)
     conv.add_argument("--filter-col", default=None)
     conv.add_argument("--filter-value", default=None)
+    conv.add_argument("--resolution", default=None, choices=["standard", "detailed", "finest"],
+                      help="grid preset, only used when the project has no grid yet (or with --rebuild-grid)")
+    conv.add_argument("--rebuild-grid", action="store_true",
+                      help="replace the project's grid first -- DELETES every stored layer")
 
     rem = sub.add_parser("remove-layer")
     rem.add_argument("--layer", required=True)
+
+    gi = sub.add_parser("grid-info")
+    gi.add_argument("--dataset", required=True)
 
     args = p.parse_args()
 
@@ -394,10 +449,13 @@ def _cli() -> None:
             result = inspect_csv(args.dataset, unique_values_of=args.unique_values_of)
         elif args.mode == "remove-layer":
             result = remove_layer(args.layer)
+        elif args.mode == "grid-info":
+            result = grid_info(args.dataset)
         else:
             result = csv_to_voxel(
                 args.dataset, value_col=args.value_col, layer=args.layer,
                 filter_col=args.filter_col, filter_value=args.filter_value,
+                resolution=args.resolution, rebuild_grid=args.rebuild_grid,
             )
     except Exception as exc:  # noqa: BLE001
         print(json.dumps({"success": False, "error": str(exc)}))

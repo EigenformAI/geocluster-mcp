@@ -76,10 +76,44 @@ def _slug(text: str, max_len: int = 30) -> str:
     return s.strip("_")[:max_len]
 
 
+_IDENTIFIER_NAME_PATTERNS = [
+    r"(^|_)file(_|name|$)", r"(^|_)path(_|$)", r"(^|_)image", r"(^|_)img(_|$)", r"(^|_)photo", r"(^|_)url(_|$)",
+    r"(^|_)id$", r"^id(_|$)", r"uuid", r"number$", r"(^|_)no$", r"(^|_)date(_|$)", r"(^|_)time(_|$)",
+]
+_FILE_VALUE_RE = r"\.(?:jpe?g|png|tiff?|bmp|gif|csv|txt|pdf|las|xlsx?)$"
+
+
+def _is_classifiable_text_column(df, col) -> bool:
+    """True for free-text/category columns worth classifying: not a hole/row/file
+    identifier, not a date, not numbers (real or stored as text), not file names."""
+    import re
+
+    import pandas as pd
+
+    from voxel.columns import HOLE_PATTERNS
+
+    name = str(col).strip().lower()
+    if any(re.search(p, name) for p in HOLE_PATTERNS + _IDENTIFIER_NAME_PATTERNS):
+        return False
+    series = df[col].dropna()
+    if series.empty or pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+        return False
+    text = series.astype(str).str.strip()
+    text = text[text != ""]
+    if text.empty:
+        return False
+    if pd.to_numeric(text, errors="coerce").notna().mean() > 0.9:  # numbers stored as text
+        return False
+    if text.str.contains(_FILE_VALUE_RE, case=False, regex=True).mean() > 0.5:  # file names
+        return False
+    return True
+
+
 def _candidate_columns(df) -> list[str]:
-    """Every column that isn't a coordinate/depth column -- same exclusion
-    csv_to_voxel's inspect uses, so "pick a column" and "convert to voxel"
-    agree on what counts as a real data column.
+    """Columns the AI may pick to classify: everything that isn't a
+    coordinate/depth column (same exclusion csv_to_voxel's inspect uses) and
+    that holds classifiable text (see _is_classifiable_text_column). Numeric
+    values such as grades belong in Convert to Voxel, not here.
     """
     import re
 
@@ -90,7 +124,7 @@ def _candidate_columns(df) -> list[str]:
     structural = {c for c in df.columns if any(re.search(p, str(c).strip().lower()) for p in geo_patterns)}
     structural |= {dc.get("depth"), dc.get("from"), dc.get("to")}
     structural -= {None}
-    return [c for c in df.columns if c not in structural]
+    return [c for c in df.columns if c not in structural and _is_classifiable_text_column(df, c)]
 
 
 def pick_text_column(dataset_path: str, goal: str, model: str | None = None) -> dict[str, Any]:
@@ -103,7 +137,10 @@ def pick_text_column(dataset_path: str, goal: str, model: str | None = None) -> 
     df = read_tabular(resolved, nrows=200)
     candidates = _candidate_columns(df)
     if not candidates:
-        raise ValueError(f"no candidate columns in {dataset_path} (everything looks like a coordinate/depth column)")
+        raise ValueError(
+            f"no free-text columns to classify in {dataset_path} (ID, file-name, date, coordinate/depth and "
+            "numeric columns are skipped); for numeric values such as grades use Convert to Voxel"
+        )
 
     lines = []
     for c in candidates:
@@ -213,6 +250,8 @@ def classify_multi_label_to_voxel(
     model: str | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     combination_rule: str = "max",
+    resolution: str | None = None,
+    rebuild_grid: bool = False,
 ) -> dict[str, Any]:
     """Given an already-decided ``categories`` list (from discover_categories,
     possibly trimmed by the caller), run one *separate binary*
@@ -221,7 +260,8 @@ def classify_multi_label_to_voxel(
     row can end up "yes" in several of the resulting layers at once (e.g. a
     description mentioning both pyrite and chalcopyrite), which a single
     categorical layer (one value per voxel) can't represent, but N binary
-    layers can.
+    layers can. ``rebuild_grid`` replaces the grid once, before the first
+    layer that reaches the grid step, so the new layers share it.
     """
     _log.info("classify_multi_label_to_voxel start: dataset=%s text_col=%s layer_prefix=%s categories=%s layers_before=%s",
               dataset_path, text_col, layer_prefix, categories, _current_layer_names())
@@ -231,6 +271,7 @@ def classify_multi_label_to_voxel(
     # after every AI call for that category has already been paid for.
     prefix = _slug(layer_prefix, 30)
     layers: dict[str, Any] = {}
+    pending_rebuild = rebuild_grid
     for cat in categories:
         slug = _slug(cat, 30)
         layer = f"{prefix}_{slug}" if prefix else slug
@@ -239,7 +280,11 @@ def classify_multi_label_to_voxel(
                 dataset_path, text_col=text_col, question=f"does this mention \"{cat}\"? (context: {goal})",
                 categories=["no", "yes"], layer=layer, filter_col=filter_col, filter_value=filter_value,
                 model=model, batch_size=batch_size, combination_rule=combination_rule,
+                resolution=resolution, rebuild_grid=pending_rebuild,
             )
+            # Once a layer got past the grid step the grid is rebuilt; later layers must reuse it.
+            if pending_rebuild and (layers[cat].get("success") or layers[cat].get("step") not in (None, "voxel_init_grid")):
+                pending_rebuild = False
         except Exception as exc:  # noqa: BLE001
             _log.exception("classify_text_to_voxel(%s) raised", layer)
             layers[cat] = {"success": False, "error": str(exc)}
@@ -419,6 +464,8 @@ def classify_text_to_voxel(
     model: str | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     combination_rule: str = "max",
+    resolution: str | None = None,
+    rebuild_grid: bool = False,
 ) -> dict[str, Any]:
     """End to end: ask the LLM about each row -> stamp the chosen category
     into the project's voxel store as a categorical layer -> export viz/.
@@ -426,8 +473,11 @@ def classify_text_to_voxel(
     layer and a plain numeric one from the same project can sit in the same
     view. Category codes are fixed by ``categories`` order (0, 1, 2, ...),
     passed as label_map so the manifest carries real names, not just numbers.
+    ``resolution`` only applies when the project has no grid yet;
+    ``rebuild_grid`` replaces the grid and discards every stored layer.
     """
-    from tools.voxel import voxel_export_bundle, voxel_get_grid, voxel_init_grid, voxel_upsert_geometry
+    from direct.csv_to_voxel import ensure_grid
+    from tools.voxel import voxel_export_bundle, voxel_upsert_geometry
 
     _log.info("classify_text_to_voxel start: dataset=%s text_col=%s layer=%s categories=%s",
               dataset_path, text_col, layer, categories)
@@ -447,13 +497,9 @@ def classify_text_to_voxel(
         geo = geometry_records(classified["df"], dataset_path, classified["value"])
         records_path = save_csv(geo["records"], dataset_path, f"voxel_records_{layer}")
 
-        grid_result = voxel_get_grid()
+        grid_result = ensure_grid(dataset_path, resolution=resolution, rebuild=rebuild_grid)
         if not grid_result.get("success"):
-            _log.info("no existing grid (%s) -- calling voxel_init_grid", grid_result.get("error"))
-            grid_result = voxel_init_grid(dataset_path=dataset_path)
-            _log.info("voxel_init_grid -> success=%s layers_now=%s", grid_result.get("success"), _current_layer_names())
-            if not grid_result.get("success"):
-                return {"success": False, "step": "voxel_init_grid", "classification": classified["stats"], **grid_result}
+            return {"success": False, "step": "voxel_init_grid", "classification": classified["stats"], **grid_result}
 
         label_map = {cat: i for i, cat in enumerate(categories)}
         upsert_result = voxel_upsert_geometry(
@@ -538,6 +584,10 @@ def _cli() -> None:
     multi.add_argument("--filter-col", default=None)
     multi.add_argument("--filter-value", default=None)
     multi.add_argument("--model", default=None)
+    multi.add_argument("--resolution", default=None, choices=["standard", "detailed", "finest"],
+                       help="grid preset, only used when the project has no grid yet (or with --rebuild-grid)")
+    multi.add_argument("--rebuild-grid", action="store_true",
+                       help="replace the project's grid first -- DELETES every stored layer")
 
     args = p.parse_args()
 
@@ -559,7 +609,7 @@ def _cli() -> None:
             result = classify_multi_label_to_voxel(
                 args.dataset, text_col=args.text_col, goal=args.goal, categories=args.categories,
                 layer_prefix=args.layer_prefix, filter_col=args.filter_col, filter_value=args.filter_value,
-                model=args.model,
+                model=args.model, resolution=args.resolution, rebuild_grid=args.rebuild_grid,
             )
         else:
             result = classify_text_to_voxel(

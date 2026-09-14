@@ -21,6 +21,17 @@ DEFAULT_SHAPE = (64, 64, 16)
 MAX_VOXELS = 4_000_000
 MIN_EXTENT_M = 1.0
 
+RESOLUTIONS = ("standard", "detailed", "finest")
+RESOLUTION_BUDGETS = {"detailed": 500_000, "finest": MAX_VOXELS}
+
+
+def square_cell_for_budget(extent_x_m: float, extent_y_m: float, nz: int, budget: int) -> float:
+    """Smallest whole-metre square horizontal cell whose nx * ny * nz stays within ``budget``."""
+    cell = float(max(1, math.ceil(math.sqrt(extent_x_m * extent_y_m * nz / budget))))
+    while math.ceil(extent_x_m / cell) * math.ceil(extent_y_m / cell) * nz > budget:
+        cell = float(math.ceil(cell * 1.01))
+    return cell
+
 
 def derive_grid(
     dataset_path: str | Path,
@@ -29,15 +40,24 @@ def derive_grid(
     cell_size_z_m: float | None = None,
     padding_m: float = 0.0,
     max_voxels: int = MAX_VOXELS,
+    resolution: str | None = None,
 ) -> tuple[GridSpec, dict[str, Any]]:
     """Return ``(GridSpec, info)`` for ``dataset_path``.
 
     Depth extent comes from ``depth_from_m``/``depth_to_m``, else ``depth_m``,
     else ``[0, 1]`` (flagged ``depth_degenerate``). Zero horizontal/vertical
     extents are widened to 1 m. ``shape`` defaults to 64x64x16 (nz=1 when depth
-    is degenerate); explicit cell sizes override ``shape``.
+    is degenerate); explicit cell sizes override ``shape``. ``resolution``
+    ("standard" | "detailed" | "finest") picks a preset instead and cannot be
+    combined with ``shape`` or cell sizes.
     """
     import pandas as pd
+
+    if resolution not in (None, *RESOLUTIONS):
+        raise ValueError(f"unknown resolution {resolution!r}; use one of: {', '.join(RESOLUTIONS)}")
+    if resolution in RESOLUTION_BUDGETS and (shape or cell_size_xy_m or cell_size_z_m):
+        raise ValueError("pass either resolution or shape/cell sizes, not both")
+    resolution_label = resolution or ("custom" if (shape or cell_size_xy_m or cell_size_z_m) else "standard")
 
     path = Path(dataset_path)
     if not path.is_file():
@@ -96,6 +116,10 @@ def derive_grid(
         widened.append("depth")
         depth_degenerate = True
 
+    if resolution in RESOLUTION_BUDGETS:
+        nz_preset = 1 if depth_degenerate else DEFAULT_SHAPE[2]
+        cell_size_xy_m = square_cell_for_budget(x1 - x0, y1 - y0, nz_preset, RESOLUTION_BUDGETS[resolution])
+
     if cell_size_xy_m or cell_size_z_m:
         cxy = float(cell_size_xy_m) if cell_size_xy_m else None
         cz = float(cell_size_z_m) if cell_size_z_m else None
@@ -135,5 +159,19 @@ def derive_grid(
         "depth_degenerate": depth_degenerate,
         "widened_axes": widened,
         "padding_m": pad,
+        "resolution": resolution_label,
     }
     return grid, info
+
+
+def preview_resolutions(dataset_path: str | Path, padding_m: float = 0.0) -> dict[str, dict[str, Any]]:
+    """The grid each resolution preset would produce for ``dataset_path``, without creating anything."""
+    previews: dict[str, dict[str, Any]] = {}
+    for name in RESOLUTIONS:
+        grid, _ = derive_grid(dataset_path, resolution=name, padding_m=padding_m)
+        previews[name] = {
+            "shape": list(grid.shape),
+            "cell_size_m": [round(float(c), 1) for c in grid.cell_size],
+            "n_voxels": int(grid.n_voxels),
+        }
+    return previews

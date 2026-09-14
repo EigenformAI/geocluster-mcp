@@ -41,6 +41,27 @@ def test_init_grid_cell_sizes_and_overwrite_guard(workspace):
     assert ok["success"] and T.voxel_list_layers()["layers"] == []
 
 
+def test_init_grid_resolution_presets(workspace):
+    from voxel.grid_from_dataset import RESOLUTION_BUDGETS, preview_resolutions
+
+    previews = preview_resolutions(workspace / "drillholes_small.csv")
+    assert previews["standard"]["shape"] == [64, 64, 16]
+    for name in ("detailed", "finest"):
+        p = previews[name]
+        assert p["n_voxels"] <= RESOLUTION_BUDGETS[name], (name, p)
+        assert p["shape"][2] == 16 and p["cell_size_m"][0] == p["cell_size_m"][1], (name, p)
+    assert previews["finest"]["cell_size_m"][0] < previews["detailed"]["cell_size_m"][0] < previews["standard"]["cell_size_m"][0]
+
+    r = T.voxel_init_grid("drillholes_small.csv", resolution="detailed")
+    assert r["success"], r
+    assert r["grid"]["shape"] == previews["detailed"]["shape"] and r["dataset"]["resolution"] == "detailed"
+
+    bad = T.voxel_init_grid("drillholes_small.csv", resolution="ultra", overwrite=True)
+    assert bad["success"] is False and "unknown resolution" in bad["error"]
+    mixed = T.voxel_init_grid("drillholes_small.csv", resolution="finest", cell_size_xy_m=10.0, overwrite=True)
+    assert mixed["success"] is False and "not both" in mixed["error"]
+
+
 def test_init_grid_flat_dataset_is_one_slab(workspace):
     r = T.voxel_init_grid("flat_points.csv")
     assert r["success"] and r["depth_degenerate"] is True and r["grid"]["shape"][2] == 1
