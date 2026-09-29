@@ -430,6 +430,26 @@ def write_bundle(viz_dir: Path, samples: dict | None, grid_spec: dict | None, la
 # ---------------------------------------------------------------------------
 # publish
 # ---------------------------------------------------------------------------
+def mirror_bundle(src: str | Path, dest: str | Path) -> None:
+    """Replace ``dest`` with a copy of the bundle at ``src`` (copy to a sibling, then swap).
+
+    Used to keep the legacy <workspace>/viz/ current while bundles are written per conversation
+    (runs/<id>/viz/): the viewer and the R2 upload only know the legacy folder. A reader sees
+    either the old bundle or the new one; between the two renames ``dest`` is briefly absent.
+    """
+    import shutil
+
+    src, dest = Path(src), Path(dest)
+    tmp = dest.with_name(f".{dest.name}.tmp-{os.getpid()}")
+    old = dest.with_name(f".{dest.name}.old-{os.getpid()}")
+    shutil.rmtree(tmp, ignore_errors=True)
+    shutil.copytree(src, tmp)
+    if dest.exists():
+        dest.rename(old)
+    tmp.rename(dest)
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def publish(
     workspace: str | Path,
     grid_shape: tuple[int, int, int] | None = None,
@@ -441,9 +461,14 @@ def publish(
     finding: str | None = None,
     hypothesis: str | None = None,
     include_samples: bool = True,
+    search_root: str | Path | None = None,
     log=None,
 ) -> dict:
-    """Build and write the bundle for ``workspace``. Raises ValueError with a clear message."""
+    """Build and write the bundle for ``workspace``. Raises ValueError with a clear message.
+
+    ``search_root`` is where the dataset CSV is looked for when not given (default: ``workspace``).
+    A conversation's run folder (runs/<id>/) holds its results but not the shared input data.
+    """
     workspace = Path(workspace).resolve()
     if not workspace.is_dir():
         raise ValueError(f"workspace {workspace} does not exist")
@@ -463,7 +488,8 @@ def publish(
     samples_prov = None
     assignments_path = Path(assignments) if assignments else discover_assignments(workspace)
     if include_samples and assignments_path and assignments_path.is_file():
-        dataset_path = Path(dataset) if dataset else discover_dataset(workspace, assignments_path)
+        dataset_root = Path(search_root).resolve() if search_root else workspace
+        dataset_path = Path(dataset) if dataset else discover_dataset(dataset_root, assignments_path)
         if dataset_path and dataset_path.is_file():
             if log:
                 log(f"assignments: {assignments_path}")
@@ -530,14 +556,21 @@ def main(argv: list[str] | None = None) -> None:
                     help="also emit gridded layers at this shape, e.g. --grid 64 64 16 "
                          "(ignored when a voxel_store/ grid exists — that grid is authoritative)")
     ap.add_argument("--no-voxel-store", action="store_true", help="ignore <workspace>/voxel_store/")
+    ap.add_argument("--search-root", help="where to look for the dataset CSV (default: --workspace); "
+                                          "used when --workspace is a conversation's runs/<id>/ folder")
+    ap.add_argument("--mirror-to", help="after writing, replace this folder with a copy of the bundle "
+                                        "(keeps the legacy <workspace>/viz/ current)")
     args = ap.parse_args(argv)
     try:
         result = publish(
             args.workspace, tuple(args.grid) if args.grid else None, args.assignments, args.dataset,
-            include_voxel_store=not args.no_voxel_store, log=print,
+            include_voxel_store=not args.no_voxel_store, search_root=args.search_root, log=print,
         )
     except ValueError as exc:
         sys.exit(f"error: {exc}")
+    if args.mirror_to:
+        mirror_bundle(result["viz_dir"], args.mirror_to)
+        print(f"mirrored to {args.mirror_to}")
     for w in result["warnings"]:
         print(f"warning: {w}")
 

@@ -7,7 +7,8 @@ tools decide WHERE it lands (floor((coord - origin) / cell), clamped) and log
 it. All names start with ``voxel_`` and avoid substrings other specialists
 glob on (inspect, query, log, viz, stat, cluster, map, ...): the name is the ACL.
 
-Store location: <WORKSPACE_ROOT>/voxel_store/{index.json, layers/*.npy, operations.jsonl}
+Store location: <output root>/voxel_store/{index.json, layers/*.npy, operations.jsonl}, where the output root
+is the conversation's run folder (GEOCLUSTER_RUN_DIR, X-7) or else <WORKSPACE_ROOT>.
 """
 
 from __future__ import annotations
@@ -30,8 +31,13 @@ def _workspace_root() -> str:
     return _cfg.WORKSPACE_ROOT
 
 
+def _output_root() -> str:
+    """This conversation's run folder (GEOCLUSTER_RUN_DIR), else the workspace (X-7)."""
+    return _cfg.output_root()
+
+
 def _store_dir() -> str:
-    return os.path.join(_workspace_root(), STORE_DIRNAME)
+    return os.path.join(_output_root(), STORE_DIRNAME)
 
 
 def _open_store():
@@ -444,8 +450,9 @@ def voxel_export_bundle(
     try:
         import viz_bundle
 
+        # publish() scopes viz/, voxel_store/ and result discovery to the folder it is given
         result = viz_bundle.publish(
-            _workspace_root(),
+            _output_root(),
             None,
             resolve_path(assignments_path) if assignments_path else None,
             resolve_path(dataset_path) if dataset_path else None,
@@ -455,6 +462,11 @@ def voxel_export_bundle(
             hypothesis=hypothesis,
             include_samples=include_samples,
         )
+        if _cfg.RUN_DIR:
+            # Dual-write: the viewer and the R2 upload read only <workspace>/viz/ until they learn
+            # per-run prefixes (latest export wins there, as before concurrent conversations).
+            viz_bundle.mirror_bundle(result["viz_dir"], os.path.join(_workspace_root(), "viz"))
+            result["legacy_viz_dir"] = "viz"
         result["success"] = True
         result["tool"] = "voxel_export_bundle"
         result["manifest_path"] = _relative_to_workspace(result["manifest_path"])

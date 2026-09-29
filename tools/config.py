@@ -49,10 +49,50 @@ def read_tabular(path: str, **kwargs):
         raise ValueError(f"Unsupported format: {ext}. Use .csv, .xlsx, or .las")
 
 
+def _load_run_dir():
+    """
+    This server's conversation output folder (design invariant X-7).
+
+    The runtime gateway starts one MCP server per concurrent conversation with
+    GEOCLUSTER_RUN_DIR=runs/<conversation id>, so conversations sharing a workspace never
+    write over each other's outputs. Unset (the shared server, host CLI, tests): None and
+    outputs go next to their input as before. An invalid value stops the server at startup
+    instead of silently writing to the shared workspace (X-6).
+    """
+    raw = os.environ.get("GEOCLUSTER_RUN_DIR", "").strip()
+    if not raw:
+        return None
+    rel = os.path.normpath(raw)
+    if os.path.isabs(rel) or rel.split(os.sep)[0] != "runs" or rel == "runs":
+        raise ValueError(f"GEOCLUSTER_RUN_DIR must be a folder under runs/ in the workspace, got '{raw}'")
+    run_dir = resolve_path(rel)  # X-1: stays inside WORKSPACE_ROOT (symlinks included)
+    os.makedirs(run_dir, exist_ok=True)
+    return run_dir
+
+
+RUN_DIR = _load_run_dir()
+
+
+def output_root() -> str:
+    """Folder that owns this server's outputs: the conversation's run folder, else the workspace."""
+    return RUN_DIR or os.path.realpath(WORKSPACE_ROOT)
+
+
+def default_results_dir() -> str:
+    """results/ under output_root(). Used when a tool has no input file to put results next to."""
+    output_dir = os.path.join(output_root(), "results")
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
+
+
 def get_output_dir(input_path: str) -> str:
     """
-    Get the output directory based on the input file's location.
-    Creates a 'results' folder next to the input file.
+    Get the output directory for results derived from ``input_path``.
+
+    Without a run folder: a 'results' folder next to the input file (unchanged).
+    With a run folder (GEOCLUSTER_RUN_DIR): inputs outside it write to <run>/results/;
+    inputs already inside it (a previous step's output) write next to themselves, so a
+    chain of steps stays in one folder instead of nesting results/results/.
 
     Args:
         input_path: Path to the input file being processed
@@ -62,7 +102,12 @@ def get_output_dir(input_path: str) -> str:
     """
     resolved_path = resolve_path(input_path)
     input_dir = os.path.dirname(os.path.abspath(resolved_path))
-    output_dir = os.path.join(input_dir, "results")
+    if RUN_DIR and not (input_dir == RUN_DIR or input_dir.startswith(RUN_DIR + os.sep)):
+        return default_results_dir()
+    if RUN_DIR and os.path.basename(input_dir) == "results":
+        output_dir = input_dir
+    else:
+        output_dir = os.path.join(input_dir, "results")
     os.makedirs(output_dir, exist_ok=True)
     return output_dir
 

@@ -5,7 +5,7 @@ import time
 import json
 import zipfile
 
-from .config import get_output_dir, resolve_path
+from .config import default_results_dir, get_output_dir, resolve_path
 
 
 def summarize_provenance(workspace_path: str = None):
@@ -13,7 +13,7 @@ def summarize_provenance(workspace_path: str = None):
     if workspace_path:
         results_dir = get_output_dir(workspace_path)
     else:
-        results_dir = "results"
+        results_dir = default_results_dir()  # was "results", relative to the server cwd
 
     if not os.path.exists(results_dir):
         return f"No results folder found at {results_dir}. No analysis performed yet."
@@ -70,7 +70,7 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
     elif path != "all" and os.path.exists(path):
         output_dir = get_output_dir(path)
     else:
-        output_dir = "results"
+        output_dir = default_results_dir()  # was "results", relative to the server cwd
 
     # Validate path containment for non-"all" paths (X-1 invariant)
     resolved_file = None

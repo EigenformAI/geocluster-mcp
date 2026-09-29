@@ -90,3 +90,22 @@ def test_publish_errors_are_value_errors(tmp_path):
     ws.mkdir()
     with pytest.raises(ValueError, match="cluster_assignments"):
         viz_bundle.publish(ws, (4, 4, 2))
+
+
+def test_cli_publishes_run_folder_with_shared_dataset_and_legacy_mirror(workspace):
+    """entrypoint autopublish for a conversation: results in runs/<id>/, dataset shared at the root."""
+    run = workspace / "runs" / "1790000000000"
+    (run / "results").mkdir(parents=True)
+    (workspace / "cluster_assignments_k3.csv").rename(run / "results" / "cluster_assignments_k3.csv")
+    viz_bundle.main([
+        "--workspace", str(run), "--search-root", str(workspace), "--grid", "4", "4", "2",
+        "--mirror-to", str(workspace / "viz"),
+    ])
+    run_manifest = json.loads((run / "viz" / "manifest.json").read_text())
+    legacy_manifest = json.loads((workspace / "viz" / "manifest.json").read_text())
+    assert run_manifest == legacy_manifest
+    samples = next(a for a in run_manifest["artifacts"] if a["kind"] == "samples")
+    assert samples["provenance"]["dataset"] == "drillholes_small.csv" and samples["n_samples"] == 40
+    assert not list(workspace.glob(".viz.*")), "mirror leaves no temp folders"
+    with pytest.raises(SystemExit):  # without --search-root the run folder has no dataset
+        viz_bundle.main(["--workspace", str(run), "--grid", "4", "4", "2"])

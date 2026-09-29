@@ -240,5 +240,9 @@ mcp.tool()(voxel_export_bundle)
 if __name__ == "__main__":
     # mcp.run()
 
-    print("Starting Geocluster MCP on http://0.0.0.0:7654/sse")
-    mcp.run(transport="sse", host="0.0.0.0", port=7654)
+    # The runtime gateway starts one server per concurrent conversation on a loopback port
+    # (MCP_HOST/MCP_PORT, with GEOCLUSTER_RUN_DIR); the shared server keeps 0.0.0.0:7654.
+    host = os.environ.get("MCP_HOST", "0.0.0.0")
+    port = int(os.environ.get("MCP_PORT", "7654"))
+    print(f"Starting Geocluster MCP on http://{host}:{port}/sse")
+    mcp.run(transport="sse", host=host, port=port)
