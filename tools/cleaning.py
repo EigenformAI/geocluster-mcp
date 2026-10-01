@@ -5,7 +5,7 @@
 from typing import Optional
 
 from .config import resolve_path, read_tabular, save_csv
-from .dataframe_cache import load, drop
+from .dataframe_cache import load
 
 # ── Column classification patterns (extracted from backend) ──────────
 # Source: geocluster-ai-BE/app/services/dataset_validator.py (lines 33-65)
@@ -540,7 +540,6 @@ def fix_decimals(
             columns_fixed.append(col)
 
     output_path = save_csv(df, resolved, "fixed_decimals")
-    drop(resolved)  # Invalidate cache since we have a new output
 
     result = {
         "output_path": output_path,
@@ -646,7 +645,6 @@ def parse_detection_limits(
         counts_per_column[col] = counts
 
     output_path = save_csv(df, resolved, "parsed_dl")
-    drop(resolved)
 
     return {
         "output_path": output_path,
@@ -698,7 +696,6 @@ def remove_duplicates(
     rows_after = len(df)
 
     output_path = save_csv(df, resolved, "deduped")
-    drop(resolved)
 
     return {
         "output_path": output_path,
@@ -773,7 +770,6 @@ def standardize_terms(
     values_changed = int((original.fillna(sentinel) != df[column].fillna(sentinel)).sum())
 
     output_path = save_csv(df, resolved, "standardized")
-    drop(resolved)
 
     return {
         "output_path": output_path,

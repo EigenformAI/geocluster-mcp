@@ -56,12 +56,25 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 # discovery
 # ---------------------------------------------------------------------------
+def _visible(path: Path, root: Path) -> bool:
+    """Not under a dot-folder and not a dot-file: those are temps of writes in progress (tools.config.atomic_*)."""
+    return not any(part.startswith(".") for part in path.relative_to(root).parts)
+
+
+def _stat_or_none(path: Path):
+    try:
+        return path.stat()
+    except FileNotFoundError:  # replaced or removed while scanning
+        return None
+
+
 def discover_assignments(workspace: Path) -> Path | None:
     candidates = [
-        p for p in workspace.rglob("cluster_assignments*.csv")
-        if "viz" not in p.parts and "voxel_store" not in p.parts
+        (st.st_mtime, p) for p in workspace.rglob("cluster_assignments*.csv")
+        if "viz" not in p.parts and "voxel_store" not in p.parts and _visible(p, workspace)
+        and (st := _stat_or_none(p)) is not None
     ]
-    return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+    return max(candidates)[1] if candidates else None
 
 
 def discover_dataset(workspace: Path, near: Path | None) -> Path | None:
@@ -70,7 +83,9 @@ def discover_dataset(workspace: Path, near: Path | None) -> Path | None:
         fixed = near.parent / "dataset_fixed.csv"
         if fixed.is_file():
             return fixed
-    for csv in sorted(workspace.rglob("*.csv"), key=lambda p: -p.stat().st_size):
+    sized = [(st.st_size, p) for p in workspace.rglob("*.csv")
+             if _visible(p, workspace) and (st := _stat_or_none(p)) is not None]
+    for _, csv in sorted(sized, key=lambda item: -item[0]):
         if "viz" in csv.parts or "voxel_store" in csv.parts or csv.name.startswith("cluster_assignments"):
             continue
         try:
@@ -390,6 +405,19 @@ def write_atomic_json(path: Path, payload: dict) -> None:
     os.replace(tmp, path)
 
 
+def _write_atomic_bytes(path: Path, blob: bytes) -> None:
+    # temp + rename: an export copied or uploaded mid-write never ships a torn layer blob
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(blob)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def write_bundle(viz_dir: Path, samples: dict | None, grid_spec: dict | None, layers: dict,
                  project_id: str, provenance: dict | None = None, samples_provenance: dict | None = None,
                  log=None) -> dict:
@@ -400,7 +428,7 @@ def write_bundle(viz_dir: Path, samples: dict | None, grid_spec: dict | None, la
         (viz_dir / "layers").mkdir(exist_ok=True)
         defs = []
         for layer_id, (spec, blob) in layers.items():
-            (viz_dir / spec["path"]).write_bytes(blob)
+            _write_atomic_bytes(viz_dir / spec["path"], blob)
             defs.append(spec)
             if log:
                 log(f"wrote viz/{spec['path']} ({spec['bytes']} bytes)")
@@ -436,18 +464,40 @@ def mirror_bundle(src: str | Path, dest: str | Path) -> None:
     Used to keep the legacy <workspace>/viz/ current while bundles are written per conversation
     (runs/<id>/viz/): the viewer and the R2 upload only know the legacy folder. A reader sees
     either the old bundle or the new one; between the two renames ``dest`` is briefly absent.
+
+    Several writers mirror into the same ``dest``: export threads of the shared MCP server and the
+    publish_viz.py process. An flock on dest's parent folder serialises them all (pid-named temp
+    folders collided in one process) without leaving a lock file in the user's workspace, and the
+    temp names are unique per call.
     """
+    import fcntl
     import shutil
+    import uuid
 
     src, dest = Path(src), Path(dest)
-    tmp = dest.with_name(f".{dest.name}.tmp-{os.getpid()}")
-    old = dest.with_name(f".{dest.name}.old-{os.getpid()}")
-    shutil.rmtree(tmp, ignore_errors=True)
-    shutil.copytree(src, tmp)
-    if dest.exists():
-        dest.rename(old)
-    tmp.rename(dest)
-    shutil.rmtree(old, ignore_errors=True)
+    token = uuid.uuid4().hex[:12]
+    tmp = dest.with_name(f".{dest.name}.tmp-{token}")
+    old = dest.with_name(f".{dest.name}.old-{token}")
+    lock = os.open(dest.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # released when the descriptor is closed
+        try:
+            shutil.copytree(src, tmp)
+            moved = False
+            if dest.exists():
+                dest.rename(old)
+                moved = True
+            try:
+                tmp.rename(dest)
+            except BaseException:
+                if moved and not dest.exists():
+                    old.rename(dest)  # put the previous bundle back
+                raise
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(old, ignore_errors=True)
+    finally:
+        os.close(lock)
 
 
 def publish(

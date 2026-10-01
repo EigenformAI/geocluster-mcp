@@ -8,7 +8,8 @@ it. All names start with ``voxel_`` and avoid substrings other specialists
 glob on (inspect, query, log, viz, stat, cluster, map, ...): the name is the ACL.
 
 Store location: <output root>/voxel_store/{index.json, layers/*.npy, operations.jsonl}, where the output root
-is the conversation's run folder (GEOCLUSTER_RUN_DIR, X-7) or else <WORKSPACE_ROOT>.
+is the conversation's run folder (the call's run_dir on the shared server, or GEOCLUSTER_RUN_DIR; X-7) or else
+<WORKSPACE_ROOT>. Writers serialise on voxel.store.store_lock(<store>).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def _workspace_root() -> str:
 
 
 def _output_root() -> str:
-    """This conversation's run folder (GEOCLUSTER_RUN_DIR), else the workspace (X-7)."""
+    """This conversation's run folder (this call's run_dir, or GEOCLUSTER_RUN_DIR), else the workspace (X-7)."""
     return _cfg.output_root()
 
 
@@ -91,26 +92,27 @@ def voxel_init_grid(
     try:
         from voxel.grid_from_dataset import derive_grid
         from voxel.spatial import SpatialVoxelStore
-        from voxel.store import VoxelStore
+        from voxel.store import VoxelStore, store_lock
 
         store_dir = _store_dir()
-        if VoxelStore.exists(store_dir):
-            existing = SpatialVoxelStore(store_dir)
-            if existing.layer_names and not overwrite:
-                return _error(
-                    "voxel_init_grid",
-                    ValueError(f"a grid with layers {existing.layer_names} already exists"),
-                    "reuse it via voxel_get_grid, or pass overwrite=True to discard all layers",
-                )
-            import shutil
-
-            shutil.rmtree(store_dir)
-
         resolved = resolve_path(dataset_path)
         grid, info = derive_grid(resolved, shape=shape, cell_size_xy_m=cell_size_xy_m,
                                  cell_size_z_m=cell_size_z_m, padding_m=padding_m)
         info["dataset_path"] = _relative_to_workspace(resolved)
-        store = SpatialVoxelStore(store_dir, grid, meta={"dataset": info, "coordinate_conversion": info["coordinate_conversion"]})
+        # check, delete and recreate as one step: a parallel stamp must not write into a store being replaced
+        with store_lock(store_dir):
+            if VoxelStore.exists(store_dir):
+                existing = SpatialVoxelStore(store_dir)
+                if existing.layer_names and not overwrite:
+                    return _error(
+                        "voxel_init_grid",
+                        ValueError(f"a grid with layers {existing.layer_names} already exists"),
+                        "reuse it via voxel_get_grid, or pass overwrite=True to discard all layers",
+                    )
+                import shutil
+
+                shutil.rmtree(store_dir)
+            store = SpatialVoxelStore(store_dir, grid, meta={"dataset": info, "coordinate_conversion": info["coordinate_conversion"]})
         return {
             "success": True,
             "tool": "voxel_init_grid",
@@ -449,24 +451,33 @@ def voxel_export_bundle(
     """Export voxel-store layers (and, when a clustering run exists, per-sample voxels) as the viewer bundle under viz/. MANDATORY final step of a transcription."""
     try:
         import viz_bundle
+        from voxel.store import store_lock
 
-        # publish() scopes viz/, voxel_store/ and result discovery to the folder it is given
-        result = viz_bundle.publish(
-            _output_root(),
-            None,
-            resolve_path(assignments_path) if assignments_path else None,
-            resolve_path(dataset_path) if dataset_path else None,
-            include_voxel_store=True,
-            layers=layers,
-            finding=finding,
-            hypothesis=hypothesis,
-            include_samples=include_samples,
-        )
-        if _cfg.RUN_DIR:
-            # Dual-write: the viewer and the R2 upload read only <workspace>/viz/ until they learn
-            # per-run prefixes (latest export wins there, as before concurrent conversations).
-            viz_bundle.mirror_bundle(result["viz_dir"], os.path.join(_workspace_root(), "viz"))
-            result["legacy_viz_dir"] = "viz"
+        # One export per store at a time, and no stamp while it reads the layers: publish() rewrites <run>/viz/ in
+        # place, and the mirror copies that folder.
+        with store_lock(_store_dir()):
+            # publish() scopes viz/, voxel_store/ and result discovery to the folder it is given
+            result = viz_bundle.publish(
+                _output_root(),
+                None,
+                resolve_path(assignments_path) if assignments_path else None,
+                resolve_path(dataset_path) if dataset_path else None,
+                include_voxel_store=True,
+                layers=layers,
+                finding=finding,
+                hypothesis=hypothesis,
+                include_samples=include_samples,
+            )
+            if _cfg.current_run_dir():
+                # Dual-write: the viewer and the R2 upload read only <workspace>/viz/ until they learn
+                # per-run prefixes (latest export wins there, as before concurrent conversations).
+                try:
+                    viz_bundle.mirror_bundle(result["viz_dir"], os.path.join(_workspace_root(), "viz"))
+                    result["legacy_viz_dir"] = "viz"
+                except Exception as exc:  # noqa: BLE001 - the run's own bundle is complete; say what was skipped
+                    result.setdefault("warnings", []).append(
+                        f"the legacy viz/ copy was not updated ({exc}); the bundle in {_relative_to_workspace(result['viz_dir'])} is complete"
+                    )
         result["success"] = True
         result["tool"] = "voxel_export_bundle"
         result["manifest_path"] = _relative_to_workspace(result["manifest_path"])

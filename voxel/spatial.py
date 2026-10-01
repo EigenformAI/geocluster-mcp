@@ -18,7 +18,6 @@ Port of combo-geology-nsl ``voxel_features/spatial.py`` (commit fd3091f):
 from __future__ import annotations
 
 import math
-import threading
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -26,7 +25,7 @@ from typing import Any, Callable, Literal
 import numpy as np
 
 from .opslog import OperationsLog
-from .store import CATEGORICAL_EMPTY, GridSpec, VoxelStore, empty_value, validate_layer_name
+from .store import CATEGORICAL_EMPTY, GridSpec, VoxelStore, empty_value, store_lock, validate_layer_name
 
 CombinationRule = Literal["replace", "max", "add", "mean"]
 BoundsPolicy = Literal["skip", "clip", "fail"]
@@ -35,20 +34,9 @@ BOUNDS_POLICIES = ("skip", "clip", "fail")
 ALLOWED_COORDINATE_SOURCE = "artifact"
 DEFAULT_SOURCE = "artifact"
 
-# Per-store-path locks serialise read-modify-write on layers: FastMCP may run
-# tool calls on threads and each call may build a fresh store instance.
-_RMW_LOCKS: dict[str, threading.RLock] = {}
-_RMW_GUARD = threading.Lock()
-
-
-def _rmw_lock(store_path: Path) -> threading.RLock:
-    key = str(store_path)
-    with _RMW_GUARD:
-        lk = _RMW_LOCKS.get(key)
-        if lk is None:
-            lk = threading.RLock()
-            _RMW_LOCKS[key] = lk
-        return lk
+# Read-modify-write on layers is serialised per store by store.store_lock (the shared MCP server runs tool calls in
+# threads, and each call opens its own store object).
+_rmw_lock = store_lock
 
 
 # Coordinate column aliases for geometry records (matched case-insensitively).
@@ -242,6 +230,17 @@ class SpatialVoxelStore(VoxelStore):
             layer_values[mask] = np.where(current == empty, value, (current + value) / 2.0)
         return affected
 
+    def _reload_grid_unchanged(self) -> None:
+        """Reload the index (lock held) and fail if the grid changed since this store object was opened.
+
+        The caller computed its voxel mask from the grid it opened with; a voxel_init_grid(overwrite=True) in a
+        parallel call would make that mask land in the wrong place.
+        """
+        opened_with = self.grid.to_dict()
+        self._reload_index()
+        if self.grid.to_dict() != opened_with:
+            raise ValueError("the voxel grid was re-initialised while this call ran; repeat the call")
+
     def _rmw(
         self,
         name: str,
@@ -255,6 +254,7 @@ class SpatialVoxelStore(VoxelStore):
         """Locked, disk-truthful read-modify-write of layer ``name``."""
         validate_layer_name(name)
         with _rmw_lock(self.store_path):
+            self._reload_grid_unchanged()
             path = self.layer_path(name)
             if not fresh and path.exists():
                 values = np.load(path).astype(float, copy=True)
@@ -366,11 +366,12 @@ class SpatialVoxelStore(VoxelStore):
         """Deposit a full per-voxel array verbatim as layer ``name`` (replaces it)."""
         cs = self._check_source(coordinate_source)
         arr = np.asarray(values, dtype=float)
-        if arr.shape != self.grid.shape:
-            raise ValueError(f"Array shape {tuple(arr.shape)} does not match grid shape {tuple(self.grid.shape)}")
         empty = empty_value(dtype)
         nonempty = np.isfinite(arr) & (arr != empty)
         with _rmw_lock(self.store_path):
+            self._reload_index()
+            if arr.shape != self.grid.shape:
+                raise ValueError(f"Array shape {tuple(arr.shape)} does not match grid shape {tuple(self.grid.shape)}")
             self.put_layer(name, arr, dtype, metadata=metadata, hypothesis=hypothesis)
             self.ops.reset_layer(name)
             self._log("array", name, f"grid_origin={self.grid.origin};shape={tuple(arr.shape)}",

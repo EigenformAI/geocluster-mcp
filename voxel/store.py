@@ -16,6 +16,7 @@ import math
 import os
 import re
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -173,6 +174,23 @@ class FeatureLayer:
         }
 
 
+# One re-entrant lock per store folder (keyed by real path) serialises every write of index.json and layers/. Each tool
+# call opens its own VoxelStore object, and on the shared MCP server calls run in threads at once, so a writer reloads
+# the index under this lock before changing it: saving the snapshot loaded when its object was opened dropped the
+# layers that parallel calls had added meanwhile (2026-10-01 audit: 60-75% of layers lost, every call "succeeded").
+_STORE_LOCKS: dict[str, threading.RLock] = {}
+_STORE_LOCKS_GUARD = threading.Lock()
+
+
+def store_lock(store_path: Path | str) -> threading.RLock:
+    key = os.path.realpath(store_path)
+    with _STORE_LOCKS_GUARD:
+        lock = _STORE_LOCKS.get(key)
+        if lock is None:
+            lock = _STORE_LOCKS[key] = threading.RLock()
+        return lock
+
+
 class VoxelStore:
     """Persistent store: ``index.json`` + ``layers/<name>.npy`` under ``store_path``."""
 
@@ -186,17 +204,18 @@ class VoxelStore:
         self._layers_dir.mkdir(exist_ok=True)
         self._layers: dict[str, FeatureLayer] = {}
 
-        if self._index_path.exists():
-            self._load_index()
-            if meta:
-                self._meta.update(meta)
+        with store_lock(self.store_path):
+            if self._index_path.exists():
+                self._load_index()
+                if meta:
+                    self._meta.update(meta)
+                    self._save_index()
+            else:
+                if grid is None:
+                    raise ValueError("grid must be provided when creating a new store")
+                self._grid = grid
+                self._meta: dict[str, Any] = {"created_at": _utc_now(), **(meta or {})}
                 self._save_index()
-        else:
-            if grid is None:
-                raise ValueError("grid must be provided when creating a new store")
-            self._grid = grid
-            self._meta: dict[str, Any] = {"created_at": _utc_now(), **(meta or {})}
-            self._save_index()
 
     # --- introspection ---------------------------------------------------------
     @staticmethod
@@ -236,6 +255,11 @@ class VoxelStore:
             )
             # keep the persisted hash so listing never has to load the array
             self._layers[name].metadata.setdefault("_content_hash", ld.get("content_hash"))
+
+    def _reload_index(self) -> None:
+        """Re-read index.json (call with store_lock held, before changing the store)."""
+        if self._index_path.exists():
+            self._load_index()
 
     def _save_index(self) -> None:
         """Atomic write (per-writer tmp + os.replace) so readers never see a torn index."""
@@ -306,11 +330,19 @@ class VoxelStore:
         """Create or replace a layer (array written before the index is updated)."""
         validate_layer_name(name)
         self._check_dtype(dtype)
-        arr = self._coerce(values, dtype)
-        layer = FeatureLayer(name=name, values=arr, dtype=dtype, metadata=dict(metadata or {}), hypothesis=hypothesis)
-        np.save(self.layer_path(name), arr)
-        self._layers[name] = layer
-        self._save_index()
+        with store_lock(self.store_path):
+            self._reload_index()  # keep the layers other calls saved since this object was opened
+            arr = self._coerce(values, dtype)  # against the grid on disk now
+            layer = FeatureLayer(name=name, values=arr, dtype=dtype, metadata=dict(metadata or {}), hypothesis=hypothesis)
+            # temp file + rename: a reader without the lock (probe, list, export) never loads a half-written array
+            tmp = self._layers_dir / f".{name}.{uuid.uuid4().hex[:12]}.tmp.npy"
+            try:
+                np.save(tmp, arr)
+                os.replace(tmp, self.layer_path(name))
+            finally:
+                tmp.unlink(missing_ok=True)
+            self._layers[name] = layer
+            self._save_index()
         return layer
 
     def get_layer(self, name: str) -> FeatureLayer:
@@ -327,13 +359,15 @@ class VoxelStore:
         return np.load(self.layer_path(name))
 
     def remove_layer(self, name: str) -> None:
-        if name not in self._layers:
-            raise KeyError(f"Layer '{name}' not found")
-        del self._layers[name]
-        p = self.layer_path(name)
-        if p.exists():
-            p.unlink()
-        self._save_index()
+        with store_lock(self.store_path):
+            self._reload_index()
+            if name not in self._layers:
+                raise KeyError(f"Layer '{name}' not found")
+            del self._layers[name]
+            p = self.layer_path(name)
+            if p.exists():
+                p.unlink()
+            self._save_index()
 
     def layer_summary(self, name: str) -> dict[str, Any]:
         """Index entry plus non-empty voxel count and value range (loads the array)."""

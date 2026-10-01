@@ -51,6 +51,24 @@ TRAINING_ENABLED = os.environ.get("GEOCLUSTER_TRAINING_ENABLED", "0") == "1"
 
 mcp = FastMCP("Geocluster MCP")
 
+# Shared server (MCP_TRANSPORT=http, one process for every conversation): the per-call run folder and worker threads
+# live in tools/runctx.py. Registered first, so it is the outermost middleware (FastMCP applies them in reverse): run_dir
+# is popped before any other middleware or FastMCP's argument validation sees it.
+from tools import dataframe_cache, runctx  # noqa: E402
+from tools.runctx import RunDirMiddleware, threaded  # noqa: E402
+
+mcp.add_middleware(RunDirMiddleware())
+
+
+@mcp.custom_route("/healthz", methods=["GET"])
+async def healthz(request):
+    """Readiness for supervisors. Never probe /mcp itself: each request without a session id opens a session that is
+    never closed."""
+    from starlette.responses import JSONResponse
+
+    return JSONResponse({"ok": True, "mode": "shared" if runctx.SHARED else "single", "in_flight": runctx.in_flight()})
+
+
 _training_log = logging.getLogger("geocluster.training")
 
 
@@ -144,79 +162,79 @@ def _install_training(mcp_server: FastMCP) -> None:
 # --- Register Tools ---
 
 # Section A: Hygiene
-mcp.tool()(list_files)
+mcp.tool()(threaded(list_files))
 # mcp.tool()(get_dataset_schema)
-mcp.tool()(inspect_dataset)
-mcp.tool()(inspect_specific_columns)
-mcp.tool()(inspect_raster)
-mcp.tool()(check_missing)
-mcp.tool()(profile_geochem)
-mcp.tool()(query_data)
+mcp.tool()(threaded(inspect_dataset))
+mcp.tool()(threaded(inspect_specific_columns))
+mcp.tool()(threaded(inspect_raster))
+mcp.tool()(threaded(check_missing))
+mcp.tool()(threaded(profile_geochem))
+mcp.tool()(threaded(query_data))
 
 
 # Section B: Spatial
-mcp.tool()(reproject)
-mcp.tool()(resample)
-mcp.tool()(clip_to_extent)
-mcp.tool()(align_grids)
+mcp.tool()(threaded(reproject))
+mcp.tool()(threaded(resample))
+mcp.tool()(threaded(clip_to_extent))
+mcp.tool()(threaded(align_grids))
 
 
 # Section C: Transforms
-mcp.tool()(normalize)
-mcp.tool()(standardize)
-mcp.tool()(log_transform)
-mcp.tool()(smooth)
-mcp.tool()(pivot)
-mcp.tool()(melt)
-mcp.tool()(merge_datasets)
-mcp.tool()(filter_rows)
-mcp.tool()(convert_dtype)
+mcp.tool()(threaded(normalize))
+mcp.tool()(threaded(standardize))
+mcp.tool()(threaded(log_transform))
+mcp.tool()(threaded(smooth))
+mcp.tool()(threaded(pivot))
+mcp.tool()(threaded(melt))
+mcp.tool()(threaded(merge_datasets))
+mcp.tool()(threaded(filter_rows))
+mcp.tool()(threaded(convert_dtype))
 
 
 # Section D: Features
-mcp.tool()(select_bands)
-mcp.tool()(band_math)
-mcp.tool()(compute_gradient)
-mcp.tool()(texture_features)
-mcp.tool()(select_columns)
-mcp.tool()(compute_ratios)
-mcp.tool()(aggregate)
+mcp.tool()(threaded(select_bands))
+mcp.tool()(threaded(band_math))
+mcp.tool()(threaded(compute_gradient))
+mcp.tool()(threaded(texture_features))
+mcp.tool()(threaded(select_columns))
+mcp.tool()(threaded(compute_ratios))
+mcp.tool()(threaded(aggregate))
 
 
 # Section E: Anomaly Detection
-mcp.tool()(compute_anomaly)
-mcp.tool()(threshold)
-mcp.tool()(rank_by_metric)
+mcp.tool()(threaded(compute_anomaly))
+mcp.tool()(threaded(threshold))
+mcp.tool()(threaded(rank_by_metric))
 
 
 # Section F: Clustering
-mcp.tool()(cluster)
-mcp.tool()(reduce_dimensions)
+mcp.tool()(threaded(cluster))
+mcp.tool()(threaded(reduce_dimensions))
 
 
 # Section G: Visualization
-mcp.tool()(plot_map)
-mcp.tool()(plot_scatter)
-mcp.tool()(plot_histogram)
-mcp.tool()(plot_clusters)
+mcp.tool()(threaded(plot_map))
+mcp.tool()(threaded(plot_scatter))
+mcp.tool()(threaded(plot_histogram))
+mcp.tool()(threaded(plot_clusters))
 
 
 # Section H: Provenance & Export
-mcp.tool()(summarize_provenance)
-mcp.tool()(export_artifact)
+mcp.tool()(threaded(summarize_provenance))
+mcp.tool()(threaded(export_artifact))
 
 
 # Section I: Data Cleaning
-mcp.tool()(validate_geology)
-mcp.tool()(detect_cleaning_issues)
-mcp.tool()(fix_decimals)
-mcp.tool()(parse_detection_limits)
-mcp.tool()(remove_duplicates)
-mcp.tool()(standardize_terms)
+mcp.tool()(threaded(validate_geology))
+mcp.tool()(threaded(detect_cleaning_issues))
+mcp.tool()(threaded(fix_decimals))
+mcp.tool()(threaded(parse_detection_limits))
+mcp.tool()(threaded(remove_duplicates))
+mcp.tool()(threaded(standardize_terms))
 
 
 # Section J: Verification
-mcp.tool()(verify_claims)
+mcp.tool()(threaded(verify_claims))
 
 
 # Section K: Training Data Collection (opt-in, see TRAINING_ENABLED above)
@@ -225,24 +243,64 @@ if TRAINING_ENABLED:
 
 
 # Section L: Voxel store + viewer bundle (voxel specialist only — names are the ACL)
-mcp.tool()(voxel_init_grid)
-mcp.tool()(voxel_get_grid)
-mcp.tool()(voxel_add_point)
-mcp.tool()(voxel_add_line)
-mcp.tool()(voxel_add_box)
-mcp.tool()(voxel_upsert_geometry)
-mcp.tool()(voxel_set_layer_array)
-mcp.tool()(voxel_probe_region)
-mcp.tool()(voxel_list_layers)
-mcp.tool()(voxel_history)
-mcp.tool()(voxel_export_bundle)
+mcp.tool()(threaded(voxel_init_grid))
+mcp.tool()(threaded(voxel_get_grid))
+mcp.tool()(threaded(voxel_add_point))
+mcp.tool()(threaded(voxel_add_line))
+mcp.tool()(threaded(voxel_add_box))
+mcp.tool()(threaded(voxel_upsert_geometry))
+mcp.tool()(threaded(voxel_set_layer_array))
+mcp.tool()(threaded(voxel_probe_region))
+mcp.tool()(threaded(voxel_list_layers))
+mcp.tool()(threaded(voxel_history))
+mcp.tool()(threaded(voxel_export_bundle))
+
+def configure(env=os.environ) -> dict:
+    """
+    Transport, host and port from the environment. Exits with a message on a combination that is unsafe for the
+    shared server (MCP_TRANSPORT=http, one process serving every conversation).
+
+    SSE (the default) is unchanged: api 2's per-conversation servers (GEOCLUSTER_RUN_DIR, MCP_HOST=127.0.0.1) and the
+    host CLI (0.0.0.0:7654).
+    """
+    raw = env.get("MCP_TRANSPORT", "sse")
+    transport = raw.strip().lower()
+    if transport not in ("sse", "http"):
+        raise SystemExit(f"MCP_TRANSPORT must be 'sse' or 'http', got {raw!r}")
+    port = int(env.get("MCP_PORT", "7654"))
+    if transport == "sse":
+        return {"transport": "sse", "host": env.get("MCP_HOST", "0.0.0.0"), "port": port}
+
+    host = env.get("MCP_HOST", "127.0.0.1")
+    problems = []
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        problems.append(f"MCP_HOST must be a loopback address, got {host!r} (no auth, and each call names its folder)")
+    if env.get("GEOCLUSTER_RUN_DIR", "").strip():
+        problems.append("unset GEOCLUSTER_RUN_DIR (every call brings its own run_dir)")
+    if env.get("GEOCLUSTER_TRAINING_ENABLED", "0") == "1":
+        problems.append("unset GEOCLUSTER_TRAINING_ENABLED (one training session would record every conversation)")
+    for name in ("MCP_TOOL_THREADS", "MCP_TOOL_THREADS_PER_RUN"):
+        if not env.get(name, "1").isdigit() or int(env.get(name, "1")) < 1:
+            problems.append(f"{name} must be a positive integer, got {env.get(name)!r}")
+    if problems:
+        raise SystemExit("geocluster-mcp with MCP_TRANSPORT=http: " + "; ".join(problems))
+    return {"transport": "http", "host": host, "port": port}
+
 
 if __name__ == "__main__":
-    # mcp.run()
-
-    # The runtime gateway starts one server per concurrent conversation on a loopback port
-    # (MCP_HOST/MCP_PORT, with GEOCLUSTER_RUN_DIR); the shared server keeps 0.0.0.0:7654.
-    host = os.environ.get("MCP_HOST", "0.0.0.0")
-    port = int(os.environ.get("MCP_PORT", "7654"))
-    print(f"Starting Geocluster MCP on http://{host}:{port}/sse")
-    mcp.run(transport="sse", host=host, port=port)
+    settings = configure()
+    host, port = settings["host"], settings["port"]
+    if settings["transport"] == "http":
+        # One server for every conversation (OpenCode 2.0 has no SSE client). Options passed explicitly, so FASTMCP_*
+        # env vars or a .env in the working directory can't change them. Stateful: OpenCode re-initializes after the
+        # 404 that follows a restart.
+        runctx.SHARED = True
+        dataframe_cache.SKIP_OVER_HALF = True  # one oversized frame must not flush every conversation's cache
+        runctx.warm_up()
+        print(f"Starting Geocluster MCP on http://{host}:{port}/mcp (Streamable HTTP, shared by every conversation)")
+        mcp.run(transport="http", host=host, port=port, path="/mcp", stateless_http=False, json_response=False)
+    else:
+        # api 2 starts one server per conversation on a loopback port (MCP_HOST/MCP_PORT, with GEOCLUSTER_RUN_DIR);
+        # the host CLI's server keeps 0.0.0.0:7654.
+        print(f"Starting Geocluster MCP on http://{host}:{port}/sse")
+        mcp.run(transport="sse", host=host, port=port)

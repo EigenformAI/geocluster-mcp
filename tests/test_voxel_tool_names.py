@@ -55,10 +55,16 @@ def test_registered_in_main():
 
     src = (Path(voxel_tools.__file__).resolve().parents[1] / "main.py").read_text()
     tree = ast.parse(src)
+
+    def tool_name(arg):  # mcp.tool()(fn) or mcp.tool()(threaded(fn))
+        if isinstance(arg, ast.Call) and getattr(arg.func, "id", "") == "threaded" and arg.args:
+            arg = arg.args[0]
+        return arg.id if isinstance(arg, ast.Name) else None
+
     registered = {
-        node.args[0].id
+        tool_name(node.args[0])
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Call)
-        and getattr(node.func.func, "attr", "") == "tool" and node.args and isinstance(node.args[0], ast.Name)
+        and getattr(node.func.func, "attr", "") == "tool" and node.args
     }
     assert EXPECTED <= registered

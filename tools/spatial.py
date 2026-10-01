@@ -3,7 +3,7 @@
 
 import os
 
-from .config import get_output_dir, save_raster, read_tabular
+from .config import get_output_dir, save_raster, read_tabular, resolve_path
 
 
 def reproject(
@@ -34,7 +34,7 @@ def reproject(
                 return "Error: Input CSV has no CRS. Please provide 'source_crs' (e.g., 'EPSG:32750')."
 
         else:
-            gdf = gpd.read_file(path)
+            gdf = gpd.read_file(resolve_path(path))
             if source_crs:
                 gdf.to_crs(source_crs, inplace=True)
 
@@ -69,7 +69,7 @@ def resample(path: str, scale_factor: float = 0.5):
         from rasterio.warp import reproject as rio_reproject
         from rasterio.enums import Resampling
 
-        with rasterio.open(path) as src:
+        with rasterio.open(resolve_path(path)) as src:
             new_width = int(src.width * scale_factor)
             new_height = int(src.height * scale_factor)
 
@@ -116,7 +116,7 @@ def clip_to_extent(
         from shapely.geometry import box
         from rasterio.mask import mask
 
-        with rasterio.open(path) as src:
+        with rasterio.open(resolve_path(path)) as src:
             bbox = box(min_x, min_y, max_x, max_y)
 
             box_crs = crs if crs else src.crs
@@ -158,14 +158,14 @@ def align_grids(source_path: str, reference_path: str):
         from rasterio.warp import reproject as rio_reproject
         from rasterio.enums import Resampling
 
-        with rasterio.open(reference_path) as ref:
+        with rasterio.open(resolve_path(reference_path)) as ref:
             dst_crs = ref.crs
             dst_transform = ref.transform
             dst_width = ref.width
             dst_height = ref.height
             dst_profile = ref.profile.copy()
 
-        with rasterio.open(source_path) as src:
+        with rasterio.open(resolve_path(source_path)) as src:
             dst_profile.update(
                 {
                     "crs": dst_crs,

@@ -4,7 +4,7 @@
 import ast
 import os
 
-from .config import save_raster, save_csv, get_output_dir, read_tabular
+from .config import save_raster, save_csv, get_output_dir, read_tabular, resolve_path
 
 
 def _validate_band_math_expr(expression: str, allowed_names: set[str]) -> None:
@@ -84,7 +84,7 @@ def select_bands(path: str, indices: list[int]):
     try:
         import rasterio
 
-        with rasterio.open(path) as src:
+        with rasterio.open(resolve_path(path)) as src:
             max_band = src.count
             if any(i < 1 or i > max_band for i in indices):
                 return f"Error: Invalid indices {indices}. Input raster only has {max_band} bands."
@@ -109,7 +109,7 @@ def band_math(path: str, expression: str):
         import numpy as np
         import rasterio
 
-        with rasterio.open(path) as src:
+        with rasterio.open(resolve_path(path)) as src:
             meta = src.meta.copy()
             bands = {f"b{i}": src.read(i) for i in range(1, src.count + 1)}
 
@@ -151,7 +151,7 @@ def compute_gradient(path: str, method: str = "sobel"):
         import rasterio
         from skimage.filters import sobel
 
-        with rasterio.open(path) as src:
+        with rasterio.open(resolve_path(path)) as src:
             data = src.read(1)
             meta = src.meta.copy()
 
@@ -179,7 +179,7 @@ def texture_features(path: str, method: str = "entropy"):
         from skimage.morphology import disk
         from skimage.util import img_as_ubyte
 
-        with rasterio.open(path) as src:
+        with rasterio.open(resolve_path(path)) as src:
             data = src.read(1)
             meta = src.meta.copy()
 
