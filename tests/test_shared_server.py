@@ -57,9 +57,12 @@ def test_threaded_registration_keeps_every_tool_schema():
 
     plain = FastMCP("plain")
     for tool in run(main.mcp.get_tools()).values():
-        plain.tool()(getattr(tool.fn, "__wrapped__", tool.fn))
+        if tool.name.startswith("geomodel_"):
+            plain.add_tool(tool)
+        else:
+            plain.tool()(getattr(tool.fn, "__wrapped__", tool.fn))
     wrapped, unwrapped = run(listing(main.mcp)), run(listing(plain))
-    assert len(wrapped) == 56
+    assert len(wrapped) == 75
     assert wrapped == unwrapped
 
 

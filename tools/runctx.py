@@ -105,12 +105,22 @@ class RunDirMiddleware(Middleware):
                 "is invalid."
             ) from exc
         session = _acting_session(context)
+        science_token = None
+        if name.startswith("geomodel_"):
+            from .geomodel import CALL_ATTRIBUTION, HOOK_FIELDS
+            trusted = {key: args.pop(key, None) for key in HOOK_FIELDS}
+            root = raw.split("/")[1]
+            if trusted["rootConversationId"] != root or not all(isinstance(value, str) and value for value in trusted.values()):
+                raise ToolError(f"geophysics {name}: trusted scientific scope is missing or invalid. Next step: restart the runtime scope hook.")
+            science_token = CALL_ATTRIBUTION.set({"kind": "agent", **trusted})
         token = _cfg._CALL_RUN_DIR.set(run_dir)
         t0 = time.monotonic()
         log.info("call-start tool=%s run_dir=%s session=%r", name, raw, session)
         try:
             return await call_next(context)
         finally:
+            if science_token is not None:
+                CALL_ATTRIBUTION.reset(science_token)
             _cfg._CALL_RUN_DIR.reset(token)
             log.info("call-end tool=%s run_dir=%s session=%r dur_ms=%d", name, raw, session,
                      (time.monotonic() - t0) * 1000)

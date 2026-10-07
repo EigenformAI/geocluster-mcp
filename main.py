@@ -255,6 +255,10 @@ mcp.tool()(threaded(voxel_list_layers))
 mcp.tool()(threaded(voxel_history))
 mcp.tool()(threaded(voxel_export_bundle))
 
+# Section M: scientific owner facade, registry schemas and structured output.
+from tools.geomodel import register_tools as register_geomodel_tools  # noqa: E402
+register_geomodel_tools(mcp)
+
 def configure(env=os.environ) -> dict:
     """
     Transport, host and port from the environment. Exits with a message on a combination that is unsafe for the
