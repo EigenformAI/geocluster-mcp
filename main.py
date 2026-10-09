@@ -29,19 +29,6 @@ from tools.cleaning import (
     remove_duplicates,
     standardize_terms,
 )
-from tools.voxel import (
-    voxel_init_grid,
-    voxel_get_grid,
-    voxel_add_point,
-    voxel_add_line,
-    voxel_add_box,
-    voxel_upsert_geometry,
-    voxel_set_layer_array,
-    voxel_probe_region,
-    voxel_list_layers,
-    voxel_history,
-    voxel_export_bundle,
-)
 
 # Section K (training data collection: the five *_training_* tools plus the
 # middleware that records every tool call into the active session) is parked.
@@ -241,19 +228,6 @@ mcp.tool()(threaded(verify_claims))
 if TRAINING_ENABLED:
     _install_training(mcp)
 
-
-# Section L: Voxel store + viewer bundle (voxel specialist only — names are the ACL)
-mcp.tool()(threaded(voxel_init_grid))
-mcp.tool()(threaded(voxel_get_grid))
-mcp.tool()(threaded(voxel_add_point))
-mcp.tool()(threaded(voxel_add_line))
-mcp.tool()(threaded(voxel_add_box))
-mcp.tool()(threaded(voxel_upsert_geometry))
-mcp.tool()(threaded(voxel_set_layer_array))
-mcp.tool()(threaded(voxel_probe_region))
-mcp.tool()(threaded(voxel_list_layers))
-mcp.tool()(threaded(voxel_history))
-mcp.tool()(threaded(voxel_export_bundle))
 
 def configure(env=os.environ) -> dict:
     """
