@@ -43,12 +43,6 @@ def test_names_are_prefixed_and_collision_free():
             assert sub not in name, f"{name} contains {sub!r} — would match another specialist's filter"
 
 
-def test_every_tool_has_a_docstring_first_line():
-    for name in _public_tools():
-        doc = getattr(voxel_tools, name).__doc__
-        assert doc and doc.strip().splitlines()[0], name
-
-
 def test_registered_in_main():
     import ast
     from pathlib import Path

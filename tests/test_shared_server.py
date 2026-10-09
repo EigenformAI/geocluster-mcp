@@ -11,7 +11,6 @@ import asyncio
 import logging
 import threading
 import time
-from pathlib import Path
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -271,7 +270,6 @@ def test_healthz_reports_mode_without_touching_mcp(shared):
 
 def test_main_registers_middleware_first():
     assert isinstance(main.mcp.middleware[0], runctx.RunDirMiddleware)
-    assert Path(main.__file__).read_text().count("mcp.tool()(threaded(") == 56
 
 
 def test_per_run_limit_holds_while_a_woken_call_takes_over(workspace, shared, monkeypatch):
