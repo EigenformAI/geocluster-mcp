@@ -138,7 +138,7 @@ For an SSE-capable client, point it at the server URL:
 
 Without a conversation folder, file-derived outputs use `results/` beside the input. SSE callers can select a server-wide `GEOCLUSTER_RUN_DIR=runs/<conversation-id>`. Shared HTTP callers select the folder per call with `run_dir`; inputs outside that folder produce `<run>/results/`. A chain whose input already lives in that run's `results/` folder keeps its outputs there.
 
-Tools return their generated paths and use atomic replacement when publishing results. `summarize_provenance` lists generated evidence, and `export_artifact` bundles ordinary results.
+Tools return their generated paths. Publication behavior is tool-specific: the shared CSV/raster/plot output helpers and ZIP export use atomic replacement, while other writers can write directly to their final paths. `summarize_provenance` lists generated evidence, and `export_artifact` bundles ordinary results.
 
 ## Example
 
