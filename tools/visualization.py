@@ -3,7 +3,8 @@
 # plt.switch_backend("Agg") is called once via _ensure_agg() before any plot.
 
 import os
-from .config import save_plot, read_tabular
+from .config import save_plot, read_tabular, resolve_path
+from .runctx import pyplot_locked  # pyplot state is process-global; on the shared server plot tools run in threads
 
 _backend_set = False
 
@@ -17,6 +18,7 @@ def _ensure_agg():
         _backend_set = True
 
 
+@pyplot_locked
 def plot_histogram(path: str, column: str, bins: int = 30):
     """Plot histogram of a column."""
     try:
@@ -41,6 +43,7 @@ def plot_histogram(path: str, column: str, bins: int = 30):
         return f"Error plotting histogram: {str(e)}"
 
 
+@pyplot_locked
 def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
     """Scatter plot X vs Y, optional color_col."""
     try:
@@ -79,6 +82,7 @@ def plot_scatter(path: str, x_col: str, y_col: str, color_col: str = None):
         return f"Error plotting scatter: {str(e)}"
 
 
+@pyplot_locked
 def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = None):
     """Plot map from raster (.tif) or CSV (provide x_col, y_col)."""
     try:
@@ -90,7 +94,7 @@ def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = N
         if path.lower().endswith((".tif", ".tiff")):
             import rasterio
             from rasterio.plot import show
-            with rasterio.open(path) as src:
+            with rasterio.open(resolve_path(path)) as src:
                 show(src, title=os.path.basename(path), cmap="magma")
                 suffix = "map_raster"
         else:
@@ -125,6 +129,7 @@ def plot_map(path: str, x_col: str = None, y_col: str = None, color_col: str = N
         return f"Error plotting map: {str(e)}"
 
 
+@pyplot_locked
 def plot_clusters(path: str, x_col: str, y_col: str, cluster_col: str):
     """Scatter plot colored by cluster column."""
     try:

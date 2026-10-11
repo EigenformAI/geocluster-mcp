@@ -1,16 +1,18 @@
 # Geocluster MCP
 
-LLMs are good at reasoning about geoscience data and bad at actually touching it: they will happily describe a clustering they never ran or quote a grade that is not in the file. Geocluster MCP closes that gap. It is a [Model Context Protocol](https://modelcontextprotocol.io) server that hands an agent about 50 real tools for exploration data, so a request like *"clean this drillhole geochemistry, cluster it, rank the anomalies, and plot them over the magnetic survey"* runs as actual pandas, rasterio, and scikit-learn calls against your files.
+Geocluster MCP is a [Model Context Protocol](https://modelcontextprotocol.io) server with 45 tools for exploration data. Requests to clean drillhole geochemistry, cluster measurements, rank anomalies, or plot a magnetic survey run as pandas, rasterio, and scikit-learn operations against workspace files.
 
-Every operation is sandboxed to one workspace directory and writes its output to a `results/` folder next to the input rather than overwriting it. A `verify_claims` tool checks the numbers an agent reports back against the source data, so a hallucinated grade or coordinate is caught rather than trusted.
+Paths must resolve inside one workspace. Derived outputs use workspace or conversation-specific `results/` folders. `verify_claims` compares reported numbers against source data.
 
 - **Inputs:** CSV, Excel, and LAS (well logs) for tabular data; GeoTIFF for rasters.
 - **Built with:** [FastMCP](https://github.com/jlowin/fastmcp), pandas, GeoPandas, rasterio, scikit-learn, UMAP.
-- **Transport:** SSE on `http://0.0.0.0:7654/sse` (stdio is one line away, see below).
+- **Transport:** SSE by default; shared Streamable HTTP at `/mcp` for runtime conversations.
+
+Native voxel creation and named revisions belong to the canonical project runtime. The legacy shared voxel store, stamping tools, direct CSV-to-voxel pipeline, text-classification publishing pipeline, and viewer-bundle exporter are retired.
 
 ## Tools
 
-Around 50 tools, grouped by pipeline stage. Each takes a workspace-relative `path`.
+The default catalog contains 45 tools, grouped by pipeline stage. File arguments use workspace paths. The optional training tools are disabled by default.
 
 ### Inspect & profile
 
@@ -97,9 +99,26 @@ MCP_WORKSPACE_ROOT=/path/to/your/project uv run python main.py
 
 If `MCP_WORKSPACE_ROOT` is unset it defaults to the current directory. Any path a tool receives is resolved inside the workspace, and a path that escapes it is rejected.
 
+### Shared Streamable HTTP
+
+The runtime uses one server for every conversation:
+
+```bash
+MCP_WORKSPACE_ROOT=/path/to/your/project MCP_TRANSPORT=http \
+	MCP_HOST=127.0.0.1 MCP_PORT=7710 uv run python main.py
+```
+
+Connect a Streamable HTTP client to `http://127.0.0.1:7710/mcp`. Each tool call must supply `run_dir: "runs/<conversation-id>"`; the middleware selects that call's output folder before validating the ordinary tool arguments. The server requires a loopback host, no server-wide `GEOCLUSTER_RUN_DIR`, and disabled training in shared mode. It exposes `/healthz` with mode and in-flight work counts.
+
+Synchronous tools run in a bounded worker pool. `MCP_TOOL_THREADS` and `MCP_TOOL_THREADS_PER_RUN` configure positive worker limits. Calls exceeding capacity wait for their run's permit; different conversations retain independent output contexts.
+
 ### stdio instead of SSE
 
-`main.py` ships with SSE enabled. For a stdio client such as Claude Desktop, change the bottom of `main.py` to call `mcp.run()` with no arguments.
+For a stdio client, run the imported server directly:
+
+```bash
+MCP_WORKSPACE_ROOT=/path/to/your/project uv run python -c 'from main import mcp; mcp.run()'
+```
 
 ## Connecting an MCP client
 
@@ -117,7 +136,9 @@ For an SSE-capable client, point it at the server URL:
 
 ## Outputs
 
-Each tool writes to a `results/` folder next to the file it read, named `<input>_<operation>.<ext>`, and returns the path. Inputs are never modified, and `results/` is git-ignored. Use `summarize_provenance` to see what has been produced and `export_artifact` to bundle it.
+Without a conversation folder, file-derived outputs use `results/` beside the input. SSE callers can select a server-wide `GEOCLUSTER_RUN_DIR=runs/<conversation-id>`. Shared HTTP callers select the folder per call with `run_dir`; inputs outside that folder produce `<run>/results/`. A chain whose input already lives in that run's `results/` folder keeps its outputs there.
+
+Tools return their generated paths. Publication behavior is tool-specific: the shared CSV/raster/plot output helpers and ZIP export use atomic replacement, while other writers can write directly to their final paths. `summarize_provenance` lists generated evidence, and `export_artifact` bundles ordinary results.
 
 ## Example
 
@@ -125,20 +146,20 @@ Each tool writes to a `results/` folder next to the file it read, named `<input>
 
 ## Design notes
 
-- **Fast startup:** heavy libraries (pandas, rasterio, matplotlib) are imported inside the functions that use them, so the server is ready in under two seconds.
+- **Library loading:** heavy libraries are generally imported within tools; shared mode also warms the threadpool controller before serving concurrent work.
 - **DataFrame cache:** datasets are cached by resolved path with an mtime check and a memory budget, so repeated tool calls on the same file do not re-read it.
 - **Workspace isolation:** `resolve_path` refuses any path outside `MCP_WORKSPACE_ROOT`.
 
 ## FAQ
 
 **Which MCP clients does this work with?**
-Any client that speaks MCP over SSE, and any stdio client after the one-line change in `main.py`. That includes Claude Desktop, Cline, Cursor, and others.
+Clients that support SSE, Streamable HTTP, or stdio through the corresponding startup command. Shared HTTP clients must include the per-call `run_dir` argument.
 
 **Does the server need an API key?**
 No. It runs locally and calls no external services. The model doing the reasoning lives on the client side, and that is where an API key (if any) is configured.
 
 **Can it overwrite or damage my data?**
-No. Inputs are read-only, every result is written to a `results/` folder, and any path outside the workspace is rejected.
+Paths outside the workspace are rejected. Derived results go to the selected output folder; repeating an operation can replace its previous generated result. Check a tool's arguments before requesting edits.
 
 **Is my data sent anywhere?**
 The tools execute locally on your machine. Only what the agent chooses to read back (tool outputs and summaries) reaches whatever model your MCP client is configured to use.

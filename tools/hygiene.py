@@ -7,6 +7,7 @@ from typing import List
 
 from .config import resolve_path, read_tabular
 from . import dataframe_cache
+from .query_expr import ExpressionError, filter_rows
 
 
 def _safe_float(value, decimals: int = 4):
@@ -258,7 +259,9 @@ def query_data(path: str, operation: str, columns: List[str] = None,
     - value_counts: Top n values for specified categorical columns
     - sample: Random n rows
     - percentiles: Detailed percentiles for specified numeric columns
-    - filter_summary: Count of rows matching expression, with column stats of filtered subset
+    - filter_summary: Count of rows matching expression, with column stats of filtered subset. The expression
+      compares columns: Au_ppm > 0.5 and `Cu ppm` < 100, lithology in ['granite', 'basalt'],
+      lithology.str.contains('gran'), Au_ppm.notna(); and/or/not and arithmetic work, other code does not.
     """
     try:
         import pandas as pd
@@ -339,8 +342,11 @@ def query_data(path: str, operation: str, columns: List[str] = None,
 
         elif operation == "filter_summary":
             if not expression:
-                return "Error: Provide an expression for filter_summary (pandas query syntax)."
-            filtered = df.query(expression)
+                return "Error: Provide an expression for filter_summary, e.g. Au_ppm > 0.5 and lithology == 'granite'."
+            try:
+                filtered = filter_rows(df, expression)  # not df.query: see tools/query_expr.py
+            except ExpressionError as exc:
+                return f"Error in query_data filter_summary: {exc}"
             count = len(filtered)
             if count == 0:
                 return {"expression": expression, "matching_rows": 0}

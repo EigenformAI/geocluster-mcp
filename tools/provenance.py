@@ -5,7 +5,7 @@ import time
 import json
 import zipfile
 
-from .config import get_output_dir, resolve_path
+from .config import atomic_output, default_results_dir, get_output_dir, resolve_path
 
 
 def summarize_provenance(workspace_path: str = None):
@@ -13,7 +13,7 @@ def summarize_provenance(workspace_path: str = None):
     if workspace_path:
         results_dir = get_output_dir(workspace_path)
     else:
-        results_dir = "results"
+        results_dir = default_results_dir()  # was "results", relative to the server cwd
 
     if not os.path.exists(results_dir):
         return f"No results folder found at {results_dir}. No analysis performed yet."
@@ -51,7 +51,7 @@ def summarize_provenance(workspace_path: str = None):
             )
 
     summary_path = os.path.join(results_dir, "provenance_log.json")
-    with open(summary_path, "w") as f:
+    with atomic_output(summary_path, keep_ext=False) as tmp, open(tmp, "w") as f:
         json.dump(artifacts, f, indent=2)
 
     return {
@@ -70,7 +70,7 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
     elif path != "all" and os.path.exists(path):
         output_dir = get_output_dir(path)
     else:
-        output_dir = "results"
+        output_dir = default_results_dir()  # was "results", relative to the server cwd
 
     # Validate path containment for non-"all" paths (X-1 invariant)
     resolved_file = None
@@ -85,19 +85,24 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
         zip_name = f"geocluster_export_{timestamp}.zip"
         zip_path = os.path.join(output_dir, zip_name)
 
-        with zipfile.ZipFile(zip_path, "w") as zipf:
+        if path == "all" and not os.path.exists(output_dir):
+            return f"Error: Results folder not found at {output_dir}"
+        if path != "all" and not os.path.exists(resolved_file):
+            return f"Error: File {path} not found."
+        # built under a hidden temp name: a failed export leaves no partial zip for the next 'all' export to pack
+        with atomic_output(zip_path, keep_ext=False) as tmp, zipfile.ZipFile(tmp, "w") as zipf:
             if path == "all":
-                if not os.path.exists(output_dir):
-                    return f"Error: Results folder not found at {output_dir}"
-                for root, _, files in os.walk(output_dir):
+                for root, dirs, files in os.walk(output_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
                     for file in files:
-                        if file != zip_name:
+                        if file == zip_name or file.startswith("."):  # temps of writes in progress
+                            continue
+                        try:
                             zipf.write(os.path.join(root, file), file)
+                        except FileNotFoundError:  # replaced or removed while walking
+                            continue
             else:
-                if os.path.exists(resolved_file):
-                    zipf.write(resolved_file, os.path.basename(resolved_file))
-                else:
-                    return f"Error: File {path} not found."
+                zipf.write(resolved_file, os.path.basename(resolved_file))
 
         return {"status": "success", "output_path": zip_path}
 
