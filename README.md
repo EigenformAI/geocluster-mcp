@@ -169,3 +169,9 @@ The spatial, transform, clustering, anomaly, and plotting tools are generic. The
 
 **How is this different from just asking a model to write pandas code?**
 The tools are pre-built, input-validated, and consistent between runs. The agent composes them instead of regenerating fragile scripts each time, and `verify_claims` audits the numbers afterwards.
+
+## Licensing
+
+- Original MCP code: [Apache-2.0](LICENSE). See [NOTICE](NOTICE) for attribution and scope.
+- `example/mag_survey.tif` and `example/my_csv.csv`: [CC0 1.0 Universal](example/LICENSE).
+- Third-party dependencies and material retain their own terms and copyright notices.

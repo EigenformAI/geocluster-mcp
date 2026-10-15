@@ -1,0 +1,11 @@
+Geocluster MCP
+Copyright 2026 EigenformAI
+
+EigenformAI licenses the original MCP code under the Apache License,
+Version 2.0. See LICENSE.
+
+Third-party dependencies and material retain their own licenses and
+copyright notices.
+
+The example datasets example/mag_survey.tif and example/my_csv.csv are
+provided under CC0 1.0 Universal, not Apache-2.0. See example/LICENSE.
