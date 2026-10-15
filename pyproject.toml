@@ -3,6 +3,8 @@ name = "geocluster-mcp"
 version = "0.1.0"
 description = "MCP server with 45 exploration-geoscience tools for inspection, cleaning, spatial operations, feature engineering, clustering, anomaly detection, and visualization."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=2.14.5",
