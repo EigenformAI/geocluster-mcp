@@ -173,5 +173,5 @@ The tools are pre-built, input-validated, and consistent between runs. The agent
 ## Licensing
 
 - Original MCP code: [Apache-2.0](LICENSE). See [NOTICE](NOTICE) for attribution and scope.
-- `example/mag_survey.tif` and `example/my_csv.csv`: [CC0 1.0 Universal](example/LICENSE).
+- Example datasets are not covered by the Apache-2.0 grant for original MCP code.
 - Third-party dependencies and material retain their own terms and copyright notices.
