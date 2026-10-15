@@ -6,6 +6,3 @@ Version 2.0. See LICENSE.
 
 Third-party dependencies and material retain their own licenses and
 copyright notices.
-
-The example datasets example/mag_survey.tif and example/my_csv.csv are
-not covered by the Apache-2.0 grant for original MCP code.
