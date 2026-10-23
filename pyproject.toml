@@ -1,7 +1,10 @@
 [project]
 name = "geocluster-mcp"
 version = "0.1.0"
-description = "Geocluster MCP"
+description = "MCP server with 45 exploration-geoscience tools and 19 scientific-owner tools."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=2.14.5",
