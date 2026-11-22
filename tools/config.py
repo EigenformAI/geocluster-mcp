@@ -174,31 +174,68 @@ def get_output_dir(input_path: str) -> str:
 _UNSAFE_IN_NAME = re.compile(r"[\x00-\x1f/\\]")
 
 
+def unused_name(path: str) -> str:
+    """
+    ``path`` if nothing is there yet, else the first free ``<stem>-2<ext>``, ``<stem>-3<ext>``, ...
+
+    A tool run twice on the same input with the same suffix used to write over the first result, which a
+    conversation (or another one sharing the workspace) may still be reading, citing or mapping.
+    """
+    stem, ext = os.path.splitext(path)
+    candidate, n = path, 1
+    while os.path.lexists(candidate):
+        n += 1
+        candidate = f"{stem}-{n}{ext}"
+    return candidate
+
+
+def _place(tmp: str, output_path: str) -> None:
+    """
+    Move a finished temp file to ``output_path``, refusing to replace a file already there.
+
+    unused_name() picked a free name, but a parallel call may have taken it since: a hard link fails on an
+    existing name where os.replace would overwrite it.
+    """
+    try:
+        os.link(tmp, output_path)
+    except FileExistsError:
+        # shortcut: a name taken in that moment fails the call, upgrade to retrying the next free name if it shows up
+        raise FileExistsError(
+            f"'{output_path}' was created by another call while this one was writing; nothing was overwritten. "
+            "Next step: run the tool again."
+        ) from None
+    os.unlink(tmp)
+
+
 def _output_path(input_path: str, suffix: str, ext: str = None) -> str:
-    """<output dir for input_path>/<input stem>_<suffix><ext, default the input's>."""
+    """<output dir for input_path>/<input stem>_<suffix><ext, default the input's>, numbered if that name is taken."""
     resolved_path = resolve_path(input_path)
     output_dir = get_output_dir(resolved_path)
     name, orig_ext = os.path.splitext(os.path.basename(resolved_path))
     safe_suffix = _UNSAFE_IN_NAME.sub("_", str(suffix))
-    return os.path.join(output_dir, f"{name}_{safe_suffix}{ext if ext else orig_ext}")
+    return unused_name(os.path.join(output_dir, f"{name}_{safe_suffix}{ext if ext else orig_ext}"))
 
 
 @contextmanager
-def atomic_output(output_path: str, keep_ext: bool = True):
+def atomic_output(output_path: str, keep_ext: bool = True, replace: bool = False):
     """
-    Yield a hidden temp path next to ``output_path``; on success it replaces ``output_path``.
+    Yield a hidden temp path next to ``output_path``; on success it becomes ``output_path``.
 
-    A parallel call or the DataFrame cache reading the file sees the old version or the new one, never a torn one,
-    and a server stopped mid-write leaves no partial file under the final name. Keep the extension for writers that
-    pick the format from it (savefig); without it, scanners looking for *.csv never meet a half-written temp.
-    The stem is shortened so the temp name stays within NAME_MAX whenever the final name does.
+    A reader such as the DataFrame cache never sees a torn file, and a server stopped mid-write leaves no partial
+    file under the final name. An existing ``output_path`` is never replaced (see _place) unless ``replace`` is set,
+    which only a file rebuilt from scratch on every call should use (the provenance log). Keep the extension for
+    writers that pick the format from it (savefig); without it, scanners looking for *.csv never meet a half-written
+    temp. The stem is shortened so the temp name stays within NAME_MAX whenever the final name does.
     """
     folder, name = os.path.split(output_path)
     stem, ext = os.path.splitext(name)
     tmp = os.path.join(folder, f".{stem[:100]}.{uuid.uuid4().hex[:12]}.tmp{ext if keep_ext else ''}")
     try:
         yield tmp
-        os.replace(tmp, output_path)
+        if replace:
+            os.replace(tmp, output_path)
+        else:
+            _place(tmp, output_path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -217,7 +254,8 @@ def atomic_raster(output_path: str):
     Like atomic_output, for a raster that may come with sidecar files (ENVI/EHdr .hdr, .prj, .aux.xml).
 
     The raster is written under its final name into a hidden folder next to it, so GDAL names the sidecars right.
-    Then stale auxiliary files of the old raster are removed and every new file is moved in, the main file last.
+    Then stale auxiliary files left under that name are removed and every new file is moved in without replacing
+    anything, the main file last.
     """
     folder, name = os.path.split(output_path)
     staging = os.path.join(folder, f".tmp-{uuid.uuid4().hex[:12]}")
@@ -230,7 +268,7 @@ def atomic_raster(output_path: str):
             except FileNotFoundError:
                 pass
         for produced in sorted(os.listdir(staging), key=lambda f: f == name):
-            os.replace(os.path.join(staging, produced), os.path.join(folder, produced))
+            _place(os.path.join(staging, produced), os.path.join(folder, produced))
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 

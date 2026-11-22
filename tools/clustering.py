@@ -100,6 +100,9 @@ def reduce_dimensions(
 
         output_path = save_csv(df_new, path, suffix)
 
+        if method == "pca":
+            # how much of the spread each component keeps, so a summary can say it instead of guessing
+            return {"output_path": output_path, "explained_variance_ratio": explained_variance}
         return {"output_path": output_path}
 
     except Exception as e:

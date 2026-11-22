@@ -5,7 +5,7 @@ import time
 import json
 import zipfile
 
-from .config import atomic_output, default_results_dir, get_output_dir, resolve_path
+from .config import atomic_output, default_results_dir, get_output_dir, resolve_path, unused_name
 
 
 def summarize_provenance(workspace_path: str = None):
@@ -51,7 +51,7 @@ def summarize_provenance(workspace_path: str = None):
             )
 
     summary_path = os.path.join(results_dir, "provenance_log.json")
-    with atomic_output(summary_path, keep_ext=False) as tmp, open(tmp, "w") as f:
+    with atomic_output(summary_path, keep_ext=False, replace=True) as tmp, open(tmp, "w") as f:
         json.dump(artifacts, f, indent=2)
 
     return {
@@ -83,7 +83,8 @@ def export_artifact(path: str = "all", format: str = "zip", workspace_path: str 
     if format == "zip":
         timestamp = int(time.time())
         zip_name = f"geocluster_export_{timestamp}.zip"
-        zip_path = os.path.join(output_dir, zip_name)
+        zip_path = unused_name(os.path.join(output_dir, zip_name))  # two exports in one second
+        zip_name = os.path.basename(zip_path)
 
         if path == "all" and not os.path.exists(output_dir):
             return f"Error: Results folder not found at {output_dir}"

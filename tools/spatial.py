@@ -3,7 +3,7 @@
 
 import os
 
-from .config import get_output_dir, save_raster, read_tabular, resolve_path
+from .config import _output_path, atomic_output, get_output_dir, save_raster, read_tabular, resolve_path
 
 
 def reproject(
@@ -40,21 +40,18 @@ def reproject(
 
         gdf_transformed = gdf.to_crs(target_crs)
 
-        output_dir = get_output_dir(path)
-        filename = os.path.basename(path)
-        name, ext = os.path.splitext(filename)
-
+        # through _output_path/atomic_output like every other tool: a second run gets a new name, never the first's
         safe_target = target_crs.replace(":", "-").replace(" ", "")
-        output_path = os.path.join(output_dir, f"{name}_{safe_target}{ext}")
+        output_path = _output_path(path, safe_target)
 
         if path.endswith(".csv"):
             gdf_transformed[x_col] = gdf_transformed.geometry.x
             gdf_transformed[y_col] = gdf_transformed.geometry.y
-            pd.DataFrame(gdf_transformed.drop(columns="geometry")).to_csv(
-                output_path, index=False
-            )
+            with atomic_output(output_path, keep_ext=False) as tmp:
+                pd.DataFrame(gdf_transformed.drop(columns="geometry")).to_csv(tmp, index=False)
         else:
-            gdf_transformed.to_file(output_path, driver="GeoJSON")
+            with atomic_output(output_path) as tmp:
+                gdf_transformed.to_file(tmp, driver="GeoJSON")
 
         return {"output_path": output_path, "target_crs": target_crs}
 
