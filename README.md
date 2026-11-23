@@ -56,7 +56,7 @@ The default catalog contains 45 tools, grouped by pipeline stage. File arguments
 
 ### Clustering
 
-- `reduce_dimensions(path, columns, method, n_components)`: PCA or UMAP.
+- `reduce_dimensions(path, columns, method, n_components)`: PCA or UMAP. PCA also returns each component's `explained_variance_ratio`.
 - `cluster(path, columns, algorithm, ...)`: k-means or DBSCAN.
 
 ### Visualization
@@ -159,7 +159,7 @@ Clients that support SSE, Streamable HTTP, or stdio through the corresponding st
 No. It runs locally and calls no external services. The model doing the reasoning lives on the client side, and that is where an API key (if any) is configured.
 
 **Can it overwrite or damage my data?**
-Paths outside the workspace are rejected. Derived results go to the selected output folder; repeating an operation can replace its previous generated result. Check a tool's arguments before requesting edits.
+Paths outside the workspace are rejected. Derived results go to the selected output folder and never replace an existing file: repeating an operation writes a numbered copy (`a_log-2.csv`). The raster tools `resample`, `clip_to_extent` and `align_grids`, and `export_artifact` to xlsx or geojson, still write under a fixed name. Check a tool's arguments before requesting edits.
 
 **Is my data sent anywhere?**
 The tools execute locally on your machine. Only what the agent chooses to read back (tool outputs and summaries) reaches whatever model your MCP client is configured to use.

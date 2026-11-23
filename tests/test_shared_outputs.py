@@ -51,29 +51,43 @@ def data(workspace):
 # --- writes --------------------------------------------------------------------------------------------------------
 
 
-def test_a_reader_never_sees_a_half_written_output(data, run_dir):
-    old, new = pd.DataFrame({"x": range(1000)}), pd.DataFrame({"x": range(300_000), "y": 1.5})
-    path = cfg.save_csv(old, data, "same")
-    seen, done = [], threading.Event()
-
-    def write():
-        try:
-            for _ in range(3):
-                cfg.save_csv(new, data, "same")
-        finally:
-            done.set()
-
-    def read():
-        while not done.is_set():
-            try:
-                seen.append(len(pd.read_csv(path)))
-            except (pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
-                seen.append(repr(exc))
-
-    _, errors = in_threads([write, read])
-    assert errors == [] and seen
-    assert set(seen) <= {len(old), len(new)}, f"partial reads: {sorted(set(map(str, seen)))[:5]}"
+def test_a_repeated_output_never_replaces_the_first(data, run_dir):
+    first, again = pd.DataFrame({"x": range(1000)}), pd.DataFrame({"x": range(3), "y": 1.5})
+    path = cfg.save_csv(first, data, "same")
+    names = [os.path.basename(cfg.save_csv(again, data, "same")) for _ in range(3)]
+    assert names == ["a_same-2.csv", "a_same-3.csv", "a_same-4.csv"]
+    assert len(pd.read_csv(path)) == len(first), "the first output is untouched"
     assert not [p for p in os.listdir(os.path.dirname(path)) if p.startswith(".")], "temp files cleaned"
+
+
+def test_parallel_calls_racing_for_one_name_never_overwrite_each_other(data, run_dir):
+    frames = [pd.DataFrame({"x": [i] * 50_000}) for i in range(4)]
+    results, errors = in_threads([lambda f=f: cfg.save_csv(f, data, "race") for f in frames])
+    assert all(isinstance(e, FileExistsError) for e in errors), errors  # the loser of a name is refused
+    written = [(i, p) for i, p in enumerate(results) if p]
+    assert written and len({p for _, p in written}) == len(written)
+    for i, p in written:
+        assert set(pd.read_csv(p)["x"]) == {i}, "each file holds what its own call wrote"
+
+
+def test_a_name_taken_during_the_write_is_refused(data, run_dir):
+    target = cfg._output_path(data, "late", ".csv")
+    with pytest.raises(FileExistsError, match="nothing was overwritten"):
+        with cfg.atomic_output(target, keep_ext=False) as tmp:
+            pd.DataFrame({"x": [1]}).to_csv(tmp, index=False)
+            with open(target, "w") as f:  # another call finished first
+                f.write("theirs")
+    assert open(target).read() == "theirs"
+    assert not [p for p in os.listdir(os.path.dirname(target)) if p.startswith(".")], "temp removed"
+
+
+def test_an_existing_file_under_the_name_is_kept(data, run_dir):
+    results = run_dir / "results"
+    results.mkdir(parents=True)
+    (results / "a_log.csv").write_text("someone's own file")
+    out = cfg.save_csv(pd.DataFrame({"x": [1]}), data, "log")
+    assert os.path.basename(out) == "a_log-2.csv"
+    assert (results / "a_log.csv").read_text() == "someone's own file"
 
 
 def test_a_suffix_cannot_add_folders(data, run_dir):
@@ -103,7 +117,8 @@ def test_inputs_are_workspace_paths(data, workspace, monkeypatch, tmp_path):
 def test_provenance_log_is_replaced_atomically(run_dir):
     from tools.provenance import summarize_provenance
 
-    out = summarize_provenance()
+    summarize_provenance()
+    out = summarize_provenance()  # an inventory rebuilt each call: the one file that is replaced, not numbered
     assert json.loads((run_dir / "results" / "provenance_log.json").read_text()) == out["inventory"]
     assert [p for p in os.listdir(run_dir / "results") if p.startswith(".")] == []
 
@@ -141,16 +156,19 @@ def test_rasters_with_sidecars_keep_them_under_the_final_name(workspace, run_dir
         assert src.driver == "ENVI" and src.crs.to_epsg() == 32750
 
 
-def test_a_replaced_raster_drops_the_old_statistics_and_overviews(workspace, run_dir):
+def test_a_second_raster_leaves_the_first_and_its_sidecars_alone(workspace, run_dir):
     from tools.features import compute_gradient
 
     _envi(workspace / "scene.dat", 1.0)
     out = compute_gradient("scene.dat")["output_path"]
-    for stale in (".aux.xml", ".ovr"):
-        with open(out + stale, "w") as f:
-            f.write("stale")
-    compute_gradient("scene.dat")
-    assert sorted(os.listdir(run_dir / "results")) == ["scene_gradient.dat", "scene_gradient.hdr"]
+    with open(out + ".aux.xml", "w") as f:
+        f.write("first's statistics")
+    again = compute_gradient("scene.dat")["output_path"]
+    assert os.path.basename(again) == "scene_gradient-2.dat"
+    assert sorted(os.listdir(run_dir / "results")) == [
+        "scene_gradient-2.dat", "scene_gradient-2.hdr", "scene_gradient.dat", "scene_gradient.dat.aux.xml",
+        "scene_gradient.hdr",
+    ]
 
 
 def test_export_all_skips_temps_and_leaves_no_partial_zip(workspace, run_dir):
